@@ -149,7 +149,7 @@ describe("payments and completion", () => {
     );
   });
 
-  it("refreshes today's record from earnings without changing the required snapshot", () => {
+  it("refreshes today's record from earnings and the current debt summary", () => {
     const record = createDailyDebtRecord(
       today,
       calculateDebtSummary([debt()], today),
@@ -157,11 +157,22 @@ describe("payments and completion", () => {
       [],
       [debt()],
     );
-    const refreshed = refreshDailyDebtRecord(record, [earning(today, 120)], [], [debt()]);
+    const updatedDebts = [
+      debt(),
+      debt({ id: "debt-2", name: "Dental", currentBalance: 500 }),
+    ];
+    const refreshed = refreshDailyDebtRecord(
+      record,
+      calculateDebtSummary(updatedDebts, today),
+      [earning(today, 120)],
+      [],
+      updatedDebts,
+    );
 
-    expect(refreshed.requiredDebtAmount).toBe(record.requiredDebtAmount);
-    expect(refreshed.completed).toBe(true);
-    expect(refreshed.extraAvailable).toBe(20);
+    expect(refreshed.requiredDebtAmount).toBe(150);
+    expect(refreshed.debtContributions).toHaveLength(2);
+    expect(refreshed.completed).toBe(false);
+    expect(refreshed.extraAvailable).toBe(0);
   });
 });
 

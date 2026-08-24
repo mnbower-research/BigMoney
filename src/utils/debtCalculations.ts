@@ -144,20 +144,24 @@ export function createDailyDebtRecord(
 
 export function refreshDailyDebtRecord(
   record: DailyDebtRecord,
+  summary: DebtSummary,
   earnings: EarningEntry[],
   payments: DebtPayment[],
   debts: Debt[],
   relevantGoalProgress = record.relevantGoalProgress,
 ): DailyDebtRecord {
   const earnedToday = earningsForDate(earnings, record.date);
-  const completedAmount = normalizeMoney(Math.min(earnedToday, record.requiredDebtAmount));
+  const requiredDebtAmount = summary.todaysRequiredAmount;
+  const completedAmount = normalizeMoney(Math.min(earnedToday, requiredDebtAmount));
   const extraAvailable = normalizeMoney(
-    Math.max(earnedToday - record.requiredDebtAmount - relevantGoalProgress, 0),
+    Math.max(earnedToday - requiredDebtAmount - relevantGoalProgress, 0),
   );
   const additionalPayments = paymentsForDate(payments, debts, record.date);
-  const completed = record.requiredDebtAmount > 0 && earnedToday >= record.requiredDebtAmount;
+  const completed = requiredDebtAmount > 0 && earnedToday >= requiredDebtAmount;
 
   if (
+    record.requiredDebtAmount === requiredDebtAmount &&
+    JSON.stringify(record.debtContributions) === JSON.stringify(summary.breakdown) &&
     record.earnings === earnedToday &&
     record.completedAmount === completedAmount &&
     record.completed === completed &&
@@ -170,6 +174,8 @@ export function refreshDailyDebtRecord(
 
   return {
     ...record,
+    requiredDebtAmount,
+    debtContributions: summary.breakdown,
     earnings: earnedToday,
     completedAmount,
     completed,

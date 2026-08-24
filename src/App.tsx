@@ -54,6 +54,7 @@ export default function App() {
     const nextRecord = existingRecord
       ? refreshDailyDebtRecord(
           existingRecord,
+          summary,
           data.earnings,
           data.debtPayments,
           data.debts,
