@@ -20,7 +20,7 @@ interface DebtDashboardProps {
   onSaveDebt: (debt: Debt) => void;
   onRemoveDebt: (debtId: string) => void;
   onAddPayment: (debtId: string, amount: number, note: string) => void;
-  onAddEarnings: () => void;
+  onSaveEarnings: (entry: EarningEntry) => void;
 }
 
 export function DebtDashboard({
@@ -33,13 +33,19 @@ export function DebtDashboard({
   onSaveDebt,
   onRemoveDebt,
   onAddPayment,
-  onAddEarnings,
+  onSaveEarnings,
 }: DebtDashboardProps) {
   const [editingDebt, setEditingDebt] = useState<Debt | null>(null);
   const [showDebtForm, setShowDebtForm] = useState(false);
   const [paymentDebtId, setPaymentDebtId] = useState("");
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentNote, setPaymentNote] = useState("");
+  const [showQuickEarnings, setShowQuickEarnings] = useState(false);
+  const [quickAmount, setQuickAmount] = useState("");
+  const [quickNote, setQuickNote] = useState("");
+  const quickAmountRef = useRef<HTMLInputElement | null>(null);
+  const quickAmountValue = Number(quickAmount);
+  const quickAmountIsValid = Number.isFinite(quickAmountValue) && quickAmountValue > 0;
   const summary = useMemo(() => calculateDebtSummary(debts, today), [debts, today]);
   const liveDailyDebtRecords = useMemo(() => {
     const existingRecord = dailyDebtRecords.find((record) => record.date === today);
@@ -89,6 +95,15 @@ export function DebtDashboard({
     return undefined;
   }, [isComplete]);
 
+  useEffect(() => {
+    if (showQuickEarnings) {
+      window.setTimeout(() => {
+        quickAmountRef.current?.focus();
+        quickAmountRef.current?.select();
+      }, 0);
+    }
+  }, [showQuickEarnings]);
+
   function startPayment(debtId: string, amount = "") {
     setPaymentDebtId(debtId);
     setPaymentAmount(amount);
@@ -108,6 +123,27 @@ export function DebtDashboard({
     setPaymentNote("");
   }
 
+  function submitQuickEarnings(event: FormEvent) {
+    event.preventDefault();
+
+    if (!quickAmountIsValid) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    onSaveEarnings({
+      id: crypto.randomUUID(),
+      date: today,
+      amount: quickAmountValue,
+      note: quickNote.trim(),
+      createdAt: now,
+      updatedAt: now,
+    });
+    setQuickAmount("");
+    setQuickNote("");
+    setShowQuickEarnings(false);
+  }
+
   return (
     <div className="stack debt-stack">
       <section className={`dashboard-hero debt-hero ${goalMoodClass}`}>
@@ -123,9 +159,57 @@ export function DebtDashboard({
             {formatCurrency(todayState?.earnedToday ?? 0)} /{" "}
             {formatCurrency(todayState?.record.requiredDebtAmount ?? 0)}
           </p>
-          <button type="button" className="debt-quick-action" onClick={onAddEarnings}>
-            Add earnings
-          </button>
+          <div className="quick-earnings-shell">
+            <button
+              type="button"
+              className="debt-quick-action"
+              onClick={() => setShowQuickEarnings((value) => !value)}
+              aria-expanded={showQuickEarnings}
+              aria-controls="quick-earnings-menu"
+            >
+              {showQuickEarnings ? "Close" : "Add earnings"}
+            </button>
+            {showQuickEarnings && (
+              <form
+                id="quick-earnings-menu"
+                className="quick-earnings-menu"
+                onSubmit={submitQuickEarnings}
+                noValidate
+              >
+                <label>
+                  Amount
+                  <input
+                    ref={quickAmountRef}
+                    type="number"
+                    inputMode="decimal"
+                    min="0.01"
+                    step="0.01"
+                    value={quickAmount}
+                    onChange={(event) => setQuickAmount(event.target.value)}
+                    placeholder="0.00"
+                    required
+                  />
+                </label>
+                <label>
+                  Note <span className="muted">(optional)</span>
+                  <input
+                    type="text"
+                    value={quickNote}
+                    onChange={(event) => setQuickNote(event.target.value)}
+                    placeholder="Side gig, sale, cash"
+                  />
+                </label>
+                <div className="quick-earnings-actions">
+                  <button type="button" className="secondary small" onClick={() => setShowQuickEarnings(false)}>
+                    Cancel
+                  </button>
+                  <button type="submit" className="small" disabled={!quickAmountIsValid}>
+                    Save
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
           {isNearGoal && (
             <p className="near-goal-text">
               Almost there - {formatCurrency(todayState?.remainingToday ?? 0)} left.
