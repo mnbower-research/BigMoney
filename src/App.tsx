@@ -233,9 +233,10 @@ export default function App() {
       <TopBar
         resolvedTheme={resolvedTheme}
         onCycleTheme={cycleTheme}
+        onAddGoal={data.goal ? undefined : () => setEditingGoal(true)}
       />
 
-      {data.goal ? (
+      {data.goal && (
         <SummaryDashboard
           goal={data.goal}
           stats={stats!}
@@ -243,19 +244,6 @@ export default function App() {
           onResetProgress={resetProgress}
           onDeleteGoal={deleteGoal}
         />
-      ) : (
-        <section className="panel optional-goal-panel">
-          <div>
-            <p className="eyebrow">Money goal</p>
-            <h2>Daily income goal is optional</h2>
-            <p className="inline-note">
-              BigMoney can track debt days by itself, or you can add a broader money goal too.
-            </p>
-          </div>
-          <button type="button" className="secondary" onClick={() => setEditingGoal(true)}>
-            Add money goal
-          </button>
-        </section>
       )}
 
       <div className={`content-grid ${data.goal ? "" : "debt-only-grid"}`}>
@@ -298,11 +286,13 @@ export default function App() {
 interface TopBarProps {
   resolvedTheme: "light" | "dark";
   onCycleTheme: () => void;
+  onAddGoal?: () => void;
 }
 
 function TopBar({
   resolvedTheme,
   onCycleTheme,
+  onAddGoal,
 }: TopBarProps) {
   const nextThemeLabel = resolvedTheme === "dark" ? "Light mode" : "Dark mode";
 
@@ -313,7 +303,17 @@ function TopBar({
         BigMoney
       </a>
       <div className="top-actions">
-        <button type="button" className="secondary" onClick={onCycleTheme} aria-label={`Switch to ${nextThemeLabel}`}>
+        {onAddGoal && (
+          <button type="button" className="secondary compact-action" onClick={onAddGoal}>
+            Add goal
+          </button>
+        )}
+        <button
+          type="button"
+          className="secondary compact-action theme-toggle"
+          onClick={onCycleTheme}
+          aria-label={`Switch to ${nextThemeLabel}`}
+        >
           {nextThemeLabel}
         </button>
       </div>

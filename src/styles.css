@@ -172,6 +172,17 @@ label {
   justify-content: flex-end;
 }
 
+.compact-action {
+  min-height: 2.25rem;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.theme-toggle {
+  min-width: 6rem;
+}
+
 .setup-panel,
 .dashboard-hero,
 .panel {
@@ -422,22 +433,6 @@ label {
   font-weight: 900;
 }
 
-.optional-goal-panel {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.optional-goal-panel h2 {
-  margin: 0 0 0.35rem;
-}
-
-.optional-goal-panel p {
-  margin: 0;
-}
-
 .debt-stack {
   gap: 1.25rem;
 }
@@ -638,18 +633,20 @@ label {
     padding-top: 0.5rem;
   }
 
-  .top-bar,
-  .progress-meta,
-  .optional-goal-panel {
+  .top-bar {
+    align-items: center;
+  }
+
+  .progress-meta {
     align-items: stretch;
     flex-direction: column;
   }
 
   .top-actions {
-    justify-content: stretch;
+    flex: 0 0 auto;
+    justify-content: flex-end;
   }
 
-  .top-actions button,
   .hero-actions button,
   .actions button {
     flex: 1 1 10rem;
