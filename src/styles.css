@@ -13,6 +13,11 @@
   --danger-soft: #f7dddd;
   --warning: #9a6518;
   --success: #197050;
+  --joy-pink: #ff4fb8;
+  --joy-gold: #ffc857;
+  --joy-green: #2ed8a4;
+  --joy-blue: #35b8ff;
+  --joy-violet: #8d6bff;
   --shadow: 0 18px 45px rgba(42, 35, 20, 0.12);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -35,6 +40,11 @@
   --danger-soft: #4a2424;
   --warning: #f2c16b;
   --success: #78e4b8;
+  --joy-pink: #ff72c6;
+  --joy-gold: #ffd86b;
+  --joy-green: #64f0bf;
+  --joy-blue: #55ccff;
+  --joy-violet: #a993ff;
   --shadow: 0 18px 45px rgba(0, 0, 0, 0.28);
 }
 
@@ -301,6 +311,10 @@ label {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, var(--accent), #37a0c7);
+  transition:
+    width 260ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .progress-meta {
@@ -459,8 +473,29 @@ label {
   margin-top: 1rem;
 }
 
+.debt-hero.near-goal,
+.money-goal-hero.goal-near {
+  border-color: color-mix(in srgb, var(--joy-gold), var(--border) 45%);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--joy-gold), transparent 88%), transparent 36%),
+    linear-gradient(225deg, color-mix(in srgb, var(--joy-pink), transparent 90%), transparent 34%),
+    color-mix(in srgb, var(--surface), transparent 3%);
+  box-shadow:
+    var(--shadow),
+    0 0 0 1px color-mix(in srgb, var(--joy-gold), transparent 72%);
+}
+
 .debt-hero.complete {
   border-color: color-mix(in srgb, var(--success), var(--border) 45%);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--joy-green), transparent 82%), transparent 34%),
+    linear-gradient(235deg, color-mix(in srgb, var(--joy-pink), transparent 86%), transparent 42%),
+    linear-gradient(90deg, color-mix(in srgb, var(--joy-blue), transparent 90%), transparent 58%),
+    color-mix(in srgb, var(--surface), transparent 3%);
+  box-shadow:
+    var(--shadow),
+    0 0 0 1px color-mix(in srgb, var(--joy-green), transparent 65%),
+    0 22px 70px color-mix(in srgb, var(--joy-pink), transparent 82%);
 }
 
 .debt-hero.complete::after {
@@ -472,6 +507,14 @@ label {
   animation: debt-complete-sheen 900ms ease-out 1;
 }
 
+.money-goal-hero.goal-complete {
+  border-color: color-mix(in srgb, var(--joy-green), var(--border) 35%);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--joy-green), transparent 84%), transparent 38%),
+    linear-gradient(225deg, color-mix(in srgb, var(--joy-violet), transparent 88%), transparent 42%),
+    color-mix(in srgb, var(--surface), transparent 3%);
+}
+
 .debt-meter {
   height: 1.15rem;
 }
@@ -479,6 +522,73 @@ label {
 .debt-meter span {
   background: linear-gradient(90deg, var(--accent), var(--success));
 }
+
+.debt-hero.near-goal .debt-meter span,
+.money-goal-hero.goal-near .money-meter span {
+  background: linear-gradient(90deg, var(--accent), var(--joy-gold), var(--joy-pink));
+  box-shadow: 0 0 24px color-mix(in srgb, var(--joy-gold), transparent 45%);
+  animation: progress-pulse 1.1s ease-in-out infinite;
+}
+
+.debt-hero.complete .debt-meter span,
+.money-goal-hero.goal-complete .money-meter span {
+  background: linear-gradient(90deg, var(--joy-green), var(--joy-gold), var(--joy-pink), var(--joy-violet));
+  box-shadow: 0 0 30px color-mix(in srgb, var(--joy-pink), transparent 36%);
+}
+
+.debt-hero.near-goal .debt-quick-action,
+.debt-hero.complete .debt-quick-action {
+  background: linear-gradient(90deg, var(--joy-green), var(--joy-blue));
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--joy-green), transparent 72%);
+}
+
+.near-goal-text,
+.dopamine-text {
+  font-weight: 900;
+}
+
+.near-goal-text {
+  color: var(--joy-gold);
+}
+
+.dopamine-text {
+  color: var(--joy-green);
+}
+
+.completion-burst {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.completion-burst span {
+  --x: 0rem;
+  --y: -8rem;
+  --r: 0deg;
+  --delay: 0ms;
+  position: absolute;
+  top: 43%;
+  left: 28%;
+  opacity: 0;
+  font-size: clamp(1.5rem, 4vw, 3rem);
+  filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.24));
+  animation: confetti-pop 1.8s cubic-bezier(0.16, 1, 0.3, 1) var(--delay) forwards;
+}
+
+.completion-burst span:nth-child(1) { --x: -9rem; --y: -9rem; --r: -28deg; --delay: 0ms; }
+.completion-burst span:nth-child(2) { --x: -4rem; --y: -12rem; --r: 18deg; --delay: 65ms; }
+.completion-burst span:nth-child(3) { --x: 3rem; --y: -10rem; --r: -16deg; --delay: 115ms; }
+.completion-burst span:nth-child(4) { --x: 9rem; --y: -7rem; --r: 24deg; --delay: 40ms; }
+.completion-burst span:nth-child(5) { --x: -12rem; --y: -2rem; --r: 38deg; --delay: 150ms; }
+.completion-burst span:nth-child(6) { --x: 12rem; --y: -1rem; --r: -34deg; --delay: 95ms; }
+.completion-burst span:nth-child(7) { --x: -7rem; --y: 4rem; --r: 42deg; --delay: 180ms; }
+.completion-burst span:nth-child(8) { --x: 7rem; --y: 5rem; --r: -44deg; --delay: 130ms; }
+.completion-burst span:nth-child(9) { --x: -1rem; --y: -14rem; --r: 20deg; --delay: 210ms; }
+.completion-burst span:nth-child(10) { --x: 15rem; --y: -11rem; --r: 32deg; --delay: 175ms; }
+.completion-burst span:nth-child(11) { --x: -15rem; --y: -8rem; --r: -36deg; --delay: 230ms; }
+.completion-burst span:nth-child(12) { --x: 2rem; --y: 7rem; --r: -18deg; --delay: 260ms; }
 
 .debt-breakdown {
   grid-column: 1 / -1;
@@ -583,6 +693,49 @@ label {
 
   to {
     transform: translateX(100%);
+  }
+}
+
+@keyframes progress-pulse {
+  0%,
+  100% {
+    filter: saturate(1);
+  }
+
+  50% {
+    filter: saturate(1.45) brightness(1.08);
+  }
+}
+
+@keyframes confetti-pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.35) rotate(0deg);
+  }
+
+  12% {
+    opacity: 1;
+  }
+
+  72% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) scale(1.1) rotate(var(--r));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .completion-burst {
+    display: none;
+  }
+
+  .debt-hero.complete::after,
+  .debt-hero.near-goal .debt-meter span,
+  .money-goal-hero.goal-near .money-meter span {
+    animation: none;
   }
 }
 

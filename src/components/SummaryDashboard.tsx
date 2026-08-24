@@ -20,9 +20,11 @@ export function SummaryDashboard({
   onDeleteGoal,
 }: SummaryDashboardProps) {
   const progressWidth = `${Math.min(stats.progressPercent, 100)}%`;
+  const goalStateClass =
+    stats.progressPercent >= 100 ? "goal-complete" : stats.progressPercent >= 85 ? "goal-near" : "";
 
   return (
-    <section className="dashboard-hero" aria-labelledby="dashboard-title">
+    <section className={`dashboard-hero money-goal-hero ${goalStateClass}`} aria-labelledby="dashboard-title">
       <div className="hero-copy">
         <p className="eyebrow">{goal.name || "Money goal"}</p>
         <h1 id="dashboard-title">You need to make {formatCurrency(stats.currentDailyTarget)} per day</h1>
@@ -30,6 +32,9 @@ export function SummaryDashboard({
           {formatCurrency(stats.totalEarned)} earned of {formatCurrency(stats.totalGoal)} by{" "}
           {formatDisplayDate(goal.targetDate)}.
         </p>
+        {stats.progressPercent >= 85 && stats.progressPercent < 100 && (
+          <p className="near-goal-text">So close - {formatCurrency(stats.amountRemaining)} left.</p>
+        )}
         {stats.overage > 0 && <p className="success-text">Goal exceeded by {formatCurrency(stats.overage)}.</p>}
         {stats.shortfall > 0 && <p className="warning-text">Shortfall: {formatCurrency(stats.shortfall)}.</p>}
       </div>
@@ -47,7 +52,7 @@ export function SummaryDashboard({
       </div>
 
       <div className="progress-wrap" aria-label={`Progress ${formatPercent(stats.progressPercent)}`}>
-        <div className="progress-bar">
+        <div className="progress-bar money-meter">
           <span style={{ width: progressWidth }} />
         </div>
         <div className="progress-meta">

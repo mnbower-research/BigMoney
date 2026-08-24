@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { CalendarDateString, DailyDebtRecord, Debt, DebtPayment, EarningEntry } from "../types";
 import {
   calculateDebtSummary,
@@ -67,8 +67,27 @@ export function DebtDashboard({
     ];
   }, [dailyDebtRecords, debtPayments, debts, earnings, goalDailyTarget, summary, today]);
   const todayState = calculateTodayDebtState(liveDailyDebtRecords, today);
+  const progressPercent = todayState?.progressPercent ?? 0;
+  const isComplete = Boolean(todayState?.record.completed);
+  const isNearGoal = !isComplete && progressPercent >= 75;
+  const goalMoodClass = isComplete ? "complete" : isNearGoal ? "near-goal" : "";
+  const [showCelebration, setShowCelebration] = useState(false);
+  const wasCompleteRef = useRef(isComplete);
   const paidDebts = debts.filter((debt) => debt.status === "paid" || debt.status === "archived");
   const activeDebts = debts.filter((debt) => debt.status === "active");
+
+  useEffect(() => {
+    if (isComplete && !wasCompleteRef.current) {
+      setShowCelebration(true);
+      wasCompleteRef.current = isComplete;
+
+      const timer = window.setTimeout(() => setShowCelebration(false), 3600);
+      return () => window.clearTimeout(timer);
+    }
+
+    wasCompleteRef.current = isComplete;
+    return undefined;
+  }, [isComplete]);
 
   function startPayment(debtId: string, amount = "") {
     setPaymentDebtId(debtId);
@@ -91,12 +110,13 @@ export function DebtDashboard({
 
   return (
     <div className="stack debt-stack">
-      <section className={`dashboard-hero debt-hero ${todayState?.record.completed ? "complete" : ""}`}>
+      <section className={`dashboard-hero debt-hero ${goalMoodClass}`}>
+        {showCelebration && <CompletionBurst />}
         <div className="hero-copy">
           <p className="eyebrow">Today's debt</p>
           <h1>
-            {todayState?.record.completed
-              ? "Debt paid for today"
+            {isComplete
+              ? "Goal hit for today"
               : `${formatCurrency(todayState?.remainingToday ?? 0)} remaining today`}
           </h1>
           <p>
@@ -106,7 +126,12 @@ export function DebtDashboard({
           <button type="button" className="debt-quick-action" onClick={onAddEarnings}>
             Add earnings
           </button>
-          {todayState?.record.completed && <p className="success-text">Debt paid for today ✓</p>}
+          {isNearGoal && (
+            <p className="near-goal-text">
+              Almost there - {formatCurrency(todayState?.remainingToday ?? 0)} left.
+            </p>
+          )}
+          {isComplete && <p className="success-text dopamine-text">Goal hit! Today's debt is covered.</p>}
           {todayState && todayState.extraAvailable > 0 && (
             <p className="success-text">Extra available: {formatCurrency(todayState.extraAvailable)}</p>
           )}
@@ -121,10 +146,10 @@ export function DebtDashboard({
 
         <div className="progress-wrap">
           <div className="progress-bar debt-meter">
-            <span style={{ width: `${todayState?.progressPercent ?? 0}%` }} />
+            <span style={{ width: `${progressPercent}%` }} />
           </div>
           <div className="progress-meta">
-            <strong>{Math.round(todayState?.progressPercent ?? 0)}%</strong>
+            <strong>{Math.round(progressPercent)}%</strong>
             <span>
               Today's earnings fill this meter. Actual creditor payments are recorded separately.
             </span>
@@ -499,6 +524,18 @@ function DebtHistory({ records }: { records: DailyDebtRecord[] }) {
           </strong>
           <small>Extra {formatCurrency(record.extraAvailable)}</small>
         </div>
+      ))}
+    </div>
+  );
+}
+
+const celebrationEmojis = ["🎉", "✨", "💸", "🔥", "⭐", "🚀", "🎊", "💥", "🙌", "✅", "🌈", "⚡"];
+
+function CompletionBurst() {
+  return (
+    <div className="completion-burst" aria-hidden="true">
+      {celebrationEmojis.map((emoji, index) => (
+        <span key={`${emoji}-${index}`}>{emoji}</span>
       ))}
     </div>
   );
