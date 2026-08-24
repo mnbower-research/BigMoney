@@ -5,7 +5,7 @@ import { formatDisplayDate, isAfter } from "../utils/dates";
 
 interface EarningsHistoryProps {
   entries: EarningEntry[];
-  targetDate: string;
+  targetDate?: string;
   onEdit: (entry: EarningEntry) => void;
   onDelete: (entryId: string) => void;
 }
@@ -44,7 +44,7 @@ export function EarningsHistory({ entries, targetDate, onEdit, onDelete }: Earni
           <article className="entry-row" key={entry.id}>
             <div>
               <strong>{formatDisplayDate(entry.date)}</strong>
-              {isAfter(entry.date, targetDate) && <span className="tag">After deadline</span>}
+              {targetDate && isAfter(entry.date, targetDate) && <span className="tag">After deadline</span>}
               <p>{entry.note || "No note"}</p>
             </div>
             <span className="entry-amount">{formatCurrency(entry.amount)}</span>

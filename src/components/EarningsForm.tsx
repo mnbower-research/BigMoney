@@ -3,7 +3,7 @@ import type { EarningEntry, Goal } from "../types";
 import { isAfter, isBefore, isCalendarDateString } from "../utils/dates";
 
 interface EarningsFormProps {
-  goal: Goal;
+  goal: Goal | null;
   today: string;
   editingEntry: EarningEntry | null;
   onCancelEdit: () => void;
@@ -27,7 +27,7 @@ export function EarningsForm({
 
     if (!isCalendarDateString(date)) {
       next.push("Choose a valid earning date.");
-    } else if (isBefore(date, goal.startDate)) {
+    } else if (goal && isBefore(date, goal.startDate)) {
       next.push("Earnings cannot be dated before the goal start date.");
     }
 
@@ -36,9 +36,9 @@ export function EarningsForm({
     }
 
     return next;
-  }, [amount, date, goal.startDate]);
+  }, [amount, date, goal]);
 
-  const afterDeadline = isCalendarDateString(date) && isAfter(date, goal.targetDate);
+  const afterDeadline = goal && isCalendarDateString(date) && isAfter(date, goal.targetDate);
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -78,7 +78,7 @@ export function EarningsForm({
           <input
             type="date"
             value={date}
-            min={goal.startDate}
+            min={goal?.startDate}
             onChange={(event) => setDate(event.target.value)}
             required
           />

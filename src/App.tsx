@@ -1,13 +1,20 @@
-import { ChangeEvent, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { DailyPlan } from "./components/DailyPlan";
+import { DebtDashboard } from "./components/DebtDashboard";
 import { EarningsForm } from "./components/EarningsForm";
 import { EarningsHistory } from "./components/EarningsHistory";
 import { GoalForm } from "./components/GoalForm";
 import { SummaryDashboard } from "./components/SummaryDashboard";
 import { usePersistentAppData } from "./hooks/usePersistentAppData";
 import { useTheme } from "./hooks/useTheme";
-import type { AppData, EarningEntry, Goal, ThemePreference } from "./types";
+import type { AppData, Debt, EarningEntry, Goal, ThemePreference } from "./types";
 import { calculateGoalStats } from "./utils/calculations";
+import {
+  applyDebtPayment,
+  calculateDebtSummary,
+  createDailyDebtRecord,
+  refreshDailyDebtRecord,
+} from "./utils/debtCalculations";
 import { earningsToCsv } from "./utils/csv";
 import { todayString } from "./utils/dates";
 import { validateImportedData } from "./utils/storage";
@@ -34,6 +41,52 @@ export default function App() {
 
     return calculateGoalStats(data.goal, data.earnings, today);
   }, [data.earnings, data.goal, today]);
+  const goalDailyTarget = stats?.currentDailyTarget ?? 0;
+
+  useEffect(() => {
+    const summary = calculateDebtSummary(data.debts, today);
+    const existingRecord = data.dailyDebtRecords.find((record) => record.date === today);
+
+    if (!existingRecord && summary.todaysRequiredAmount <= 0) {
+      return;
+    }
+
+    const nextRecord = existingRecord
+      ? refreshDailyDebtRecord(
+          existingRecord,
+          data.earnings,
+          data.debtPayments,
+          data.debts,
+          goalDailyTarget,
+        )
+      : createDailyDebtRecord(
+          today,
+          summary,
+          data.earnings,
+          data.debtPayments,
+          data.debts,
+          goalDailyTarget,
+        );
+
+    if (JSON.stringify(existingRecord) === JSON.stringify(nextRecord)) {
+      return;
+    }
+
+    setData((current) => ({
+      ...current,
+      dailyDebtRecords: existingRecord
+        ? current.dailyDebtRecords.map((record) => (record.date === today ? nextRecord : record))
+        : [...current.dailyDebtRecords, nextRecord],
+    }));
+  }, [
+    data.debtPayments,
+    data.debts,
+    data.dailyDebtRecords,
+    data.earnings,
+    goalDailyTarget,
+    setData,
+    today,
+  ]);
 
   function saveGoal(goal: Goal) {
     setData((current) => ({
@@ -91,6 +144,62 @@ export default function App() {
     setEditingEntry(null);
   }
 
+  function saveDebt(debt: Debt) {
+    setData((current) => {
+      const exists = current.debts.some((item) => item.id === debt.id);
+      return {
+        ...current,
+        debts: exists
+          ? current.debts.map((item) => (item.id === debt.id ? debt : item))
+          : [...current.debts, debt],
+      };
+    });
+  }
+
+  function removeDebt(debtId: string) {
+    if (!window.confirm("Remove this debt from active planning? History and payments will be preserved.")) {
+      return;
+    }
+
+    setData((current) => ({
+      ...current,
+      debts: current.debts.map((debt) =>
+        debt.id === debtId
+          ? {
+              ...debt,
+              status: "archived",
+              updatedAt: new Date().toISOString(),
+            }
+          : debt,
+      ),
+    }));
+  }
+
+  function addDebtPayment(debtId: string, amount: number, note: string) {
+    setData((current) => {
+      const result = applyDebtPayment(current.debts, debtId, amount);
+      if (result.appliedAmount <= 0) {
+        return current;
+      }
+
+      return {
+        ...current,
+        debts: result.debts,
+        debtPayments: [
+          ...current.debtPayments,
+          {
+            id: crypto.randomUUID(),
+            debtId,
+            date: today,
+            amount: result.appliedAmount,
+            note: note.trim(),
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      };
+    });
+  }
+
   function cycleTheme() {
     const nextTheme: Record<ThemePreference, ThemePreference> = {
       system: "light",
@@ -133,7 +242,11 @@ export default function App() {
           return;
         }
 
-        const hasCurrentData = data.goal !== null || data.earnings.length > 0;
+        const hasCurrentData =
+          data.goal !== null ||
+          data.earnings.length > 0 ||
+          data.debts.length > 0 ||
+          data.debtPayments.length > 0;
         if (hasCurrentData && !window.confirm("Importing will replace your current BigMoney data. Continue?")) {
           return;
         }
@@ -149,7 +262,7 @@ export default function App() {
     reader.readAsText(file);
   }
 
-  if (!data.goal || editingGoal) {
+  if (editingGoal) {
     return (
       <main className="app-shell">
         <TopBar
@@ -182,16 +295,42 @@ export default function App() {
         onImportClick={() => fileInputRef.current?.click()}
       />
 
-      <SummaryDashboard
-        goal={data.goal}
-        stats={stats!}
-        onEditGoal={() => setEditingGoal(true)}
-        onResetProgress={resetProgress}
-        onDeleteGoal={deleteGoal}
-      />
+      {data.goal ? (
+        <SummaryDashboard
+          goal={data.goal}
+          stats={stats!}
+          onEditGoal={() => setEditingGoal(true)}
+          onResetProgress={resetProgress}
+          onDeleteGoal={deleteGoal}
+        />
+      ) : (
+        <section className="panel optional-goal-panel">
+          <div>
+            <p className="eyebrow">Money goal</p>
+            <h2>Daily income goal is optional</h2>
+            <p className="inline-note">
+              BigMoney can track debt days by itself, or you can add a broader money goal too.
+            </p>
+          </div>
+          <button type="button" className="secondary" onClick={() => setEditingGoal(true)}>
+            Add money goal
+          </button>
+        </section>
+      )}
 
       <div className="content-grid">
         <div className="stack">
+          <DebtDashboard
+            debts={data.debts}
+            debtPayments={data.debtPayments}
+            dailyDebtRecords={data.dailyDebtRecords}
+            earnings={data.earnings}
+            today={today}
+            goalDailyTarget={goalDailyTarget}
+            onSaveDebt={saveDebt}
+            onRemoveDebt={removeDebt}
+            onAddPayment={addDebtPayment}
+          />
           <EarningsForm
             key={editingEntry?.id ?? "new-entry"}
             goal={data.goal}
@@ -202,12 +341,12 @@ export default function App() {
           />
           <EarningsHistory
             entries={data.earnings}
-            targetDate={data.goal.targetDate}
+            targetDate={data.goal?.targetDate}
             onEdit={setEditingEntry}
             onDelete={deleteEntry}
           />
         </div>
-        <DailyPlan stats={stats!} targetDate={data.goal.targetDate} />
+        {data.goal && <DailyPlan stats={stats!} targetDate={data.goal.targetDate} />}
       </div>
 
       <ImportInput refElement={fileInputRef} onImport={handleImport} message={importMessage} />

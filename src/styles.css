@@ -52,7 +52,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -99,7 +100,8 @@ button.small {
   font-size: 0.88rem;
 }
 
-input {
+input,
+select {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -109,6 +111,7 @@ input {
 }
 
 input:focus,
+select:focus,
 button:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--accent), transparent 65%);
   outline-offset: 2px;
@@ -339,7 +342,7 @@ label {
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.7fr);
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
   gap: 1rem;
   margin-top: 1rem;
   align-items: start;
@@ -411,6 +414,140 @@ label {
   font-weight: 900;
 }
 
+.optional-goal-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.optional-goal-panel h2 {
+  margin: 0 0 0.35rem;
+}
+
+.optional-goal-panel p {
+  margin: 0;
+}
+
+.debt-stack {
+  gap: 1rem;
+}
+
+.debt-hero {
+  grid-template-columns: minmax(0, 1fr) auto;
+  position: relative;
+  overflow: hidden;
+}
+
+.debt-hero.complete {
+  border-color: color-mix(in srgb, var(--success), var(--border) 45%);
+}
+
+.debt-hero.complete::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(110deg, transparent 0%, color-mix(in srgb, var(--success), transparent 88%) 48%, transparent 70%);
+  animation: debt-complete-sheen 900ms ease-out 1;
+}
+
+.debt-meter {
+  height: 1.15rem;
+}
+
+.debt-meter span {
+  background: linear-gradient(90deg, var(--accent), var(--success));
+}
+
+.debt-breakdown {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.debt-accomplishments {
+  display: grid;
+  min-width: 12rem;
+  align-content: center;
+  gap: 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  background: var(--surface-strong);
+}
+
+.debt-accomplishments strong {
+  font-size: 1.6rem;
+}
+
+.debt-accomplishments span {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.debt-stats {
+  margin-bottom: 1rem;
+}
+
+.nested-form {
+  border-top: 1px solid var(--border);
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.debt-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.debt-card {
+  display: grid;
+  gap: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  background: var(--surface-strong);
+}
+
+.debt-card h3 {
+  margin: 0 0 0.45rem;
+  font-size: 1.1rem;
+}
+
+.debt-card dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin: 0;
+}
+
+.debt-card dt {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.debt-card dd {
+  margin: 0.15rem 0 0;
+  font-size: 1rem;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+@keyframes debt-complete-sheen {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(100%);
+  }
+}
+
 .import-message {
   position: fixed;
   right: 1rem;
@@ -445,6 +582,11 @@ label {
   .stats-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .debt-hero,
+  .debt-card-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -454,7 +596,8 @@ label {
   }
 
   .top-bar,
-  .progress-meta {
+  .progress-meta,
+  .optional-goal-panel {
     align-items: stretch;
     flex-direction: column;
   }
@@ -473,7 +616,8 @@ label {
   .earning-form,
   .stats-grid,
   .entry-row,
-  .summary-row {
+  .summary-row,
+  .debt-card dl {
     grid-template-columns: 1fr;
   }
 
