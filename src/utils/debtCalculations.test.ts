@@ -4,6 +4,7 @@ import {
   applyDebtPayment,
   calculateDebtProjection,
   calculateDebtSummary,
+  calculateTodayDebtState,
   createDailyDebtRecord,
   refreshDailyDebtRecord,
 } from "./debtCalculations";
@@ -120,6 +121,15 @@ describe("payments and completion", () => {
     expect(record.completed).toBe(true);
     expect(record.completedAmount).toBe(100);
     expect(record.extraAvailable).toBe(25);
+  });
+
+  it("calculates current-day meter progress from today's earnings", () => {
+    const summary = calculateDebtSummary([debt()], today);
+    const record = createDailyDebtRecord(today, summary, [earning(today, 40)], [], [debt()]);
+    const state = calculateTodayDebtState([record], today);
+
+    expect(state?.progressPercent).toBe(40);
+    expect(state?.remainingToday).toBe(60);
   });
 
   it("resets the meter for a new calendar day", () => {

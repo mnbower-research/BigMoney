@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DailyPlan } from "./components/DailyPlan";
 import { DebtDashboard } from "./components/DebtDashboard";
 import { EarningsForm } from "./components/EarningsForm";
@@ -7,7 +7,7 @@ import { GoalForm } from "./components/GoalForm";
 import { SummaryDashboard } from "./components/SummaryDashboard";
 import { usePersistentAppData } from "./hooks/usePersistentAppData";
 import { useTheme } from "./hooks/useTheme";
-import type { AppData, Debt, EarningEntry, Goal, ThemePreference } from "./types";
+import type { Debt, EarningEntry, Goal } from "./types";
 import { calculateGoalStats } from "./utils/calculations";
 import {
   applyDebtPayment,
@@ -15,22 +15,12 @@ import {
   createDailyDebtRecord,
   refreshDailyDebtRecord,
 } from "./utils/debtCalculations";
-import { earningsToCsv } from "./utils/csv";
 import { todayString } from "./utils/dates";
-import { validateImportedData } from "./utils/storage";
-
-const THEME_LABELS: Record<ThemePreference, string> = {
-  system: "System",
-  light: "Light",
-  dark: "Dark",
-};
 
 export default function App() {
   const [data, setData] = usePersistentAppData();
   const [editingGoal, setEditingGoal] = useState(false);
   const [editingEntry, setEditingEntry] = useState<EarningEntry | null>(null);
-  const [importMessage, setImportMessage] = useState("");
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const today = todayString();
   const resolvedTheme = useTheme(data.theme);
 
@@ -202,77 +192,18 @@ export default function App() {
   }
 
   function cycleTheme() {
-    const nextTheme: Record<ThemePreference, ThemePreference> = {
-      system: "light",
-      light: "dark",
-      dark: "system",
-    };
-
-    setData((current) => ({ ...current, theme: nextTheme[current.theme] }));
-  }
-
-  function exportJson() {
-    downloadFile(
-      "bigmoney-backup.json",
-      JSON.stringify(data, null, 2),
-      "application/json;charset=utf-8",
-    );
-  }
-
-  function exportCsv() {
-    downloadFile("bigmoney-earnings.csv", earningsToCsv(data.earnings), "text/csv;charset=utf-8");
-  }
-
-  function handleImport(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    setImportMessage("");
-
-    if (!file) {
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const parsed = JSON.parse(String(reader.result));
-        const result = validateImportedData(parsed);
-
-        if (!result.ok || !result.data) {
-          setImportMessage(result.errors.join(" "));
-          return;
-        }
-
-        const hasCurrentData =
-          data.goal !== null ||
-          data.earnings.length > 0 ||
-          data.debts.length > 0 ||
-          data.debtPayments.length > 0;
-        if (hasCurrentData && !window.confirm("Importing will replace your current BigMoney data. Continue?")) {
-          return;
-        }
-
-        setData(result.data);
-        setEditingGoal(false);
-        setEditingEntry(null);
-        setImportMessage("Import complete.");
-      } catch {
-        setImportMessage("Import failed. Choose a valid BigMoney JSON backup.");
-      }
-    };
-    reader.readAsText(file);
+    setData((current) => ({
+      ...current,
+      theme: resolvedTheme === "dark" ? "light" : "dark",
+    }));
   }
 
   if (editingGoal) {
     return (
       <main className="app-shell">
         <TopBar
-          theme={data.theme}
           resolvedTheme={resolvedTheme}
           onCycleTheme={cycleTheme}
-          onExportJson={exportJson}
-          onExportCsv={exportCsv}
-          onImportClick={() => fileInputRef.current?.click()}
         />
         <GoalForm
           initialGoal={editingGoal ? data.goal : null}
@@ -280,7 +211,6 @@ export default function App() {
           onSave={saveGoal}
           onCancel={editingGoal ? () => setEditingGoal(false) : undefined}
         />
-        <ImportInput refElement={fileInputRef} onImport={handleImport} message={importMessage} />
       </main>
     );
   }
@@ -288,12 +218,8 @@ export default function App() {
   return (
     <main className="app-shell">
       <TopBar
-        theme={data.theme}
         resolvedTheme={resolvedTheme}
         onCycleTheme={cycleTheme}
-        onExportJson={exportJson}
-        onExportCsv={exportCsv}
-        onImportClick={() => fileInputRef.current?.click()}
       />
 
       {data.goal ? (
@@ -349,29 +275,21 @@ export default function App() {
         </div>
         {data.goal && <DailyPlan stats={stats!} targetDate={data.goal.targetDate} />}
       </div>
-
-      <ImportInput refElement={fileInputRef} onImport={handleImport} message={importMessage} />
     </main>
   );
 }
 
 interface TopBarProps {
-  theme: ThemePreference;
   resolvedTheme: "light" | "dark";
   onCycleTheme: () => void;
-  onExportJson: () => void;
-  onExportCsv: () => void;
-  onImportClick: () => void;
 }
 
 function TopBar({
-  theme,
   resolvedTheme,
   onCycleTheme,
-  onExportJson,
-  onExportCsv,
-  onImportClick,
 }: TopBarProps) {
+  const nextThemeLabel = resolvedTheme === "dark" ? "Light mode" : "Dark mode";
+
   return (
     <header className="top-bar">
       <a className="brand" href="/" aria-label="BigMoney home">
@@ -379,57 +297,10 @@ function TopBar({
         BigMoney
       </a>
       <div className="top-actions">
-        <button type="button" className="secondary" onClick={onCycleTheme}>
-          {THEME_LABELS[theme]} mode
+        <button type="button" className="secondary" onClick={onCycleTheme} aria-label={`Switch to ${nextThemeLabel}`}>
+          {nextThemeLabel}
         </button>
-        <button type="button" className="secondary" onClick={onExportJson}>
-          Export JSON
-        </button>
-        <button type="button" className="secondary" onClick={onImportClick}>
-          Import JSON
-        </button>
-        <button type="button" className="secondary" onClick={onExportCsv}>
-          Export CSV
-        </button>
-        <span className="sr-only">Resolved theme: {resolvedTheme}</span>
       </div>
     </header>
   );
-}
-
-function ImportInput({
-  refElement,
-  onImport,
-  message,
-}: {
-  refElement: React.RefObject<HTMLInputElement | null>;
-  onImport: (event: ChangeEvent<HTMLInputElement>) => void;
-  message: string;
-}) {
-  return (
-    <>
-      <input
-        ref={refElement}
-        className="sr-only"
-        type="file"
-        accept="application/json,.json"
-        onChange={onImport}
-      />
-      {message && (
-        <p className="import-message" role="status">
-          {message}
-        </p>
-      )}
-    </>
-  );
-}
-
-function downloadFile(fileName: string, content: string, type: string) {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.click();
-  URL.revokeObjectURL(url);
 }

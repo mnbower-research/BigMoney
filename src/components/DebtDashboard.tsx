@@ -3,6 +3,8 @@ import type { CalendarDateString, DailyDebtRecord, Debt, DebtPayment, EarningEnt
 import {
   calculateDebtSummary,
   calculateTodayDebtState,
+  createDailyDebtRecord,
+  refreshDailyDebtRecord,
   type DebtProjection,
 } from "../utils/debtCalculations";
 import { formatCurrency } from "../utils/currency";
@@ -37,7 +39,32 @@ export function DebtDashboard({
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentNote, setPaymentNote] = useState("");
   const summary = useMemo(() => calculateDebtSummary(debts, today), [debts, today]);
-  const todayState = calculateTodayDebtState(dailyDebtRecords, today);
+  const liveDailyDebtRecords = useMemo(() => {
+    const existingRecord = dailyDebtRecords.find((record) => record.date === today);
+
+    if (existingRecord) {
+      const liveRecord = refreshDailyDebtRecord(
+        existingRecord,
+        summary,
+        earnings,
+        debtPayments,
+        debts,
+        goalDailyTarget,
+      );
+
+      return dailyDebtRecords.map((record) => (record.date === today ? liveRecord : record));
+    }
+
+    if (summary.todaysRequiredAmount <= 0) {
+      return dailyDebtRecords;
+    }
+
+    return [
+      ...dailyDebtRecords,
+      createDailyDebtRecord(today, summary, earnings, debtPayments, debts, goalDailyTarget),
+    ];
+  }, [dailyDebtRecords, debtPayments, debts, earnings, goalDailyTarget, summary, today]);
+  const todayState = calculateTodayDebtState(liveDailyDebtRecords, today);
   const paidDebts = debts.filter((debt) => debt.status === "paid" || debt.status === "archived");
   const activeDebts = debts.filter((debt) => debt.status === "active");
 
@@ -269,7 +296,7 @@ export function DebtDashboard({
             <h2>Debt days</h2>
           </div>
         </div>
-        <DebtHistory records={dailyDebtRecords} />
+        <DebtHistory records={liveDailyDebtRecords} />
       </section>
     </div>
   );
