@@ -152,7 +152,7 @@ export function DebtDashboard({
           <p className="eyebrow">Today's debt</p>
           <h1>
             {isComplete
-              ? "Goal hit for today"
+              ? "No debt today!"
               : `${formatCurrency(todayState?.remainingToday ?? 0)} remaining today`}
           </h1>
           <p>
@@ -215,7 +215,7 @@ export function DebtDashboard({
               Almost there - {formatCurrency(todayState?.remainingToday ?? 0)} left.
             </p>
           )}
-          {isComplete && <p className="success-text dopamine-text">Goal hit! Today's debt is covered.</p>}
+          {isComplete && <p className="success-text dopamine-text">You're clear for today. Nice work.</p>}
           {todayState && todayState.extraAvailable > 0 && (
             <p className="success-text">Extra available: {formatCurrency(todayState.extraAvailable)}</p>
           )}
