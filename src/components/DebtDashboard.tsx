@@ -224,6 +224,8 @@ export function DebtDashboard({
         <div className="debt-accomplishments">
           <strong>{todayState?.completedDays ?? 0}</strong>
           <span>Debt days completed</span>
+          <strong>{summary.debtDaysLeft}</strong>
+          <span>Debt days left</span>
           <strong>{todayState?.currentStreak ?? 0}</strong>
           <span>Current streak</span>
         </div>
@@ -278,6 +280,10 @@ export function DebtDashboard({
           <DebtStat label="Est. future interest" value={`~${formatCurrency(summary.projectedFutureInterest)}`} />
           <DebtStat label="Projected total payoff" value={`~${formatCurrency(summary.projectedTotalPayoff)}`} />
           <DebtStat label="Today's required amount" value={formatCurrency(summary.todaysRequiredAmount)} />
+          <DebtStat
+            label="Furthest payoff date"
+            value={summary.furthestPayoffDate ? formatDisplayDate(summary.furthestPayoffDate) : "Not set"}
+          />
           <DebtStat label="Other daily goal" value={formatCurrency(goalDailyTarget)} />
         </div>
 

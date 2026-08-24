@@ -59,12 +59,14 @@ describe("debt projections", () => {
     const summary = calculateDebtSummary(
       [
         debt({ id: "a", name: "Apple", currentBalance: 1000 }),
-        debt({ id: "b", name: "Dental", currentBalance: 500 }),
+        debt({ id: "b", name: "Dental", currentBalance: 500, targetPayoffDate: "2026-09-12" }),
       ],
       today,
     );
 
-    expect(summary.todaysRequiredAmount).toBe(150);
+    expect(summary.todaysRequiredAmount).toBe(125);
+    expect(summary.debtDaysLeft).toBe(20);
+    expect(summary.furthestPayoffDate).toBe("2026-09-12");
     expect(summary.breakdown).toHaveLength(2);
   });
 
@@ -87,6 +89,8 @@ describe("debt projections", () => {
     const summary = calculateDebtSummary([debt({ status: "archived" })], today);
 
     expect(summary.todaysRequiredAmount).toBe(0);
+    expect(summary.debtDaysLeft).toBe(0);
+    expect(summary.furthestPayoffDate).toBeNull();
     expect(summary.projections).toHaveLength(0);
   });
 });

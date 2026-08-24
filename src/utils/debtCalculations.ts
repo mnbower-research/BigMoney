@@ -7,7 +7,7 @@ import type {
   EarningEntry,
 } from "../types";
 import { normalizeMoney } from "./currency";
-import { daysBetweenInclusive, isAfter } from "./dates";
+import { daysBetweenInclusive, isAfter, maxDate } from "./dates";
 
 const SOLVER_ITERATIONS = 48;
 
@@ -30,6 +30,8 @@ export interface DebtSummary {
   projectedFutureInterest: number;
   projectedTotalPayoff: number;
   todaysRequiredAmount: number;
+  debtDaysLeft: number;
+  furthestPayoffDate: CalendarDateString | null;
   breakdown: DailyDebtBreakdown[];
 }
 
@@ -101,6 +103,13 @@ export function calculateDebtSummary(
     debtName: projection.debt.name,
     requiredAmount: projection.requiredDailyContribution,
   }));
+  const furthestPayoffDate = projections.reduce<CalendarDateString | null>((furthest, projection) => {
+    if (!projection.projectedPayoffDate) {
+      return furthest;
+    }
+
+    return furthest ? maxDate(furthest, projection.projectedPayoffDate) : projection.projectedPayoffDate;
+  }, null);
 
   return {
     projections,
@@ -109,6 +118,8 @@ export function calculateDebtSummary(
     projectedFutureInterest: sumMoney(projections.map((item) => item.projectedFutureInterest)),
     projectedTotalPayoff: sumMoney(projections.map((item) => item.projectedTotalPayoff)),
     todaysRequiredAmount: sumMoney(breakdown.map((item) => item.requiredAmount)),
+    debtDaysLeft: Math.max(0, ...projections.map((item) => item.remainingDays)),
+    furthestPayoffDate,
     breakdown,
   };
 }
