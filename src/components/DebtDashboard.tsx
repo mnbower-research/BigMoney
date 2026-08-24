@@ -20,6 +20,7 @@ interface DebtDashboardProps {
   onSaveDebt: (debt: Debt) => void;
   onRemoveDebt: (debtId: string) => void;
   onAddPayment: (debtId: string, amount: number, note: string) => void;
+  onAddEarnings: () => void;
 }
 
 export function DebtDashboard({
@@ -32,6 +33,7 @@ export function DebtDashboard({
   onSaveDebt,
   onRemoveDebt,
   onAddPayment,
+  onAddEarnings,
 }: DebtDashboardProps) {
   const [editingDebt, setEditingDebt] = useState<Debt | null>(null);
   const [showDebtForm, setShowDebtForm] = useState(false);
@@ -101,6 +103,9 @@ export function DebtDashboard({
             {formatCurrency(todayState?.earnedToday ?? 0)} /{" "}
             {formatCurrency(todayState?.record.requiredDebtAmount ?? 0)}
           </p>
+          <button type="button" className="debt-quick-action" onClick={onAddEarnings}>
+            Add earnings
+          </button>
           {todayState?.record.completed && <p className="success-text">Debt paid for today ✓</p>}
           {todayState && todayState.extraAvailable > 0 && (
             <p className="success-text">Extra available: {formatCurrency(todayState.extraAvailable)}</p>

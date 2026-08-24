@@ -357,6 +357,10 @@ label {
   gap: 1rem;
 }
 
+.earnings-anchor {
+  scroll-margin-top: 1rem;
+}
+
 .panel {
   padding: clamp(1rem, 3vw, 1.4rem);
 }
@@ -453,6 +457,11 @@ label {
 
 .debt-hero .hero-copy p {
   margin-top: 0.75rem;
+}
+
+.debt-quick-action {
+  width: min(100%, 14rem);
+  margin-top: 1rem;
 }
 
 .debt-hero.complete {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DailyPlan } from "./components/DailyPlan";
 import { DebtDashboard } from "./components/DebtDashboard";
 import { EarningsForm } from "./components/EarningsForm";
@@ -21,6 +21,7 @@ export default function App() {
   const [data, setData] = usePersistentAppData();
   const [editingGoal, setEditingGoal] = useState(false);
   const [editingEntry, setEditingEntry] = useState<EarningEntry | null>(null);
+  const earningsFormRef = useRef<HTMLDivElement | null>(null);
   const today = todayString();
   const resolvedTheme = useTheme(data.theme);
 
@@ -198,6 +199,18 @@ export default function App() {
     }));
   }
 
+  function jumpToAddEarnings() {
+    setEditingEntry(null);
+    window.setTimeout(() => {
+      earningsFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      const amountInput = earningsFormRef.current?.querySelector<HTMLInputElement>(
+        'input[placeholder="0.00"]',
+      );
+      amountInput?.focus({ preventScroll: true });
+      amountInput?.select();
+    }, 0);
+  }
+
   if (editingGoal) {
     return (
       <main className="app-shell">
@@ -257,15 +270,18 @@ export default function App() {
             onSaveDebt={saveDebt}
             onRemoveDebt={removeDebt}
             onAddPayment={addDebtPayment}
+            onAddEarnings={jumpToAddEarnings}
           />
-          <EarningsForm
-            key={editingEntry?.id ?? "new-entry"}
-            goal={data.goal}
-            today={today}
-            editingEntry={editingEntry}
-            onCancelEdit={() => setEditingEntry(null)}
-            onSave={saveEntry}
-          />
+          <div ref={earningsFormRef} className="earnings-anchor">
+            <EarningsForm
+              key={editingEntry?.id ?? "new-entry"}
+              goal={data.goal}
+              today={today}
+              editingEntry={editingEntry}
+              onCancelEdit={() => setEditingEntry(null)}
+              onSave={saveEntry}
+            />
+          </div>
           <EarningsHistory
             entries={data.earnings}
             targetDate={data.goal?.targetDate}
