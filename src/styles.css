@@ -348,6 +348,10 @@ label {
   align-items: start;
 }
 
+.content-grid.debt-only-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .stack {
   display: grid;
   gap: 1rem;
@@ -431,13 +435,24 @@ label {
 }
 
 .debt-stack {
-  gap: 1rem;
+  gap: 1.25rem;
 }
 
 .debt-hero {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(13rem, 18rem);
+  gap: clamp(1.25rem, 3vw, 2rem);
   position: relative;
   overflow: hidden;
+}
+
+.debt-hero .hero-copy h1 {
+  max-width: 760px;
+  font-size: clamp(3rem, 6vw, 5.6rem);
+  line-height: 1.04;
+}
+
+.debt-hero .hero-copy p {
+  margin-top: 0.75rem;
 }
 
 .debt-hero.complete {
@@ -464,17 +479,18 @@ label {
 .debt-breakdown {
   grid-column: 1 / -1;
   display: grid;
-  gap: 0.6rem;
+  gap: 0.8rem;
+  margin-top: 0.5rem;
 }
 
 .debt-accomplishments {
   display: grid;
   min-width: 12rem;
   align-content: center;
-  gap: 0.2rem;
+  gap: 0.4rem;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 1rem;
+  padding: 1.35rem;
   background: var(--surface-strong);
 }
 
@@ -489,7 +505,25 @@ label {
 }
 
 .debt-stats {
+  grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr));
+  gap: 1rem;
   margin-bottom: 1rem;
+}
+
+.debt-stats .stat-card {
+  min-height: 8.75rem;
+  padding: 1.25rem;
+}
+
+.debt-stats .stat-card span {
+  line-height: 1.35;
+}
+
+.debt-stats .stat-card strong {
+  white-space: nowrap;
+  overflow-wrap: normal;
+  font-size: clamp(1.45rem, 2.6vw, 2.15rem);
+  line-height: 1.08;
 }
 
 .nested-form {

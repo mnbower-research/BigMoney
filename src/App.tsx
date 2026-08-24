@@ -318,7 +318,7 @@ export default function App() {
         </section>
       )}
 
-      <div className="content-grid">
+      <div className={`content-grid ${data.goal ? "" : "debt-only-grid"}`}>
         <div className="stack">
           <DebtDashboard
             debts={data.debts}
