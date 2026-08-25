@@ -7,15 +7,20 @@ import { GoalForm } from "./components/GoalForm";
 import { SummaryDashboard } from "./components/SummaryDashboard";
 import { usePersistentAppData } from "./hooks/usePersistentAppData";
 import { useTheme } from "./hooks/useTheme";
-import type { Debt, EarningEntry, Goal } from "./types";
+import type { DailyDebtRecord, Debt, DebtPayment, EarningEntry, Goal, RolloverAllocation } from "./types";
 import { calculateGoalStats } from "./utils/calculations";
 import {
   applyDebtPayment,
   calculateDebtSummary,
+  calculateRolloverUsageForDate,
+  canAllocateRolloverAmount,
   createDailyDebtRecord,
   refreshDailyDebtRecord,
+  rolloverAllocatedFromDate,
+  rolloverConsumedByAllocation,
 } from "./utils/debtCalculations";
-import { todayString } from "./utils/dates";
+import { addCalendarDays, compareCalendarDates, todayString } from "./utils/dates";
+import { normalizeMoney } from "./utils/currency";
 
 export default function App() {
   const [data, setData] = usePersistentAppData();
@@ -34,46 +39,30 @@ export default function App() {
   const goalDailyTarget = stats?.currentDailyTarget ?? 0;
 
   useEffect(() => {
-    const summary = calculateDebtSummary(data.debts, today);
-    const existingRecord = data.dailyDebtRecords.find((record) => record.date === today);
+    const nextRecords = reconcileDailyDebtRecords({
+      records: data.dailyDebtRecords,
+      debts: data.debts,
+      debtPayments: data.debtPayments,
+      earnings: data.earnings,
+      rolloverAllocations: data.rolloverAllocations,
+      goalDailyTarget,
+      today,
+    });
 
-    if (!existingRecord && summary.todaysRequiredAmount <= 0) {
-      return;
-    }
-
-    const nextRecord = existingRecord
-      ? refreshDailyDebtRecord(
-          existingRecord,
-          summary,
-          data.earnings,
-          data.debtPayments,
-          data.debts,
-          goalDailyTarget,
-        )
-      : createDailyDebtRecord(
-          today,
-          summary,
-          data.earnings,
-          data.debtPayments,
-          data.debts,
-          goalDailyTarget,
-        );
-
-    if (JSON.stringify(existingRecord) === JSON.stringify(nextRecord)) {
+    if (JSON.stringify(data.dailyDebtRecords) === JSON.stringify(nextRecords)) {
       return;
     }
 
     setData((current) => ({
       ...current,
-      dailyDebtRecords: existingRecord
-        ? current.dailyDebtRecords.map((record) => (record.date === today ? nextRecord : record))
-        : [...current.dailyDebtRecords, nextRecord],
+      dailyDebtRecords: nextRecords,
     }));
   }, [
     data.debtPayments,
     data.debts,
     data.dailyDebtRecords,
     data.earnings,
+    data.rolloverAllocations,
     goalDailyTarget,
     setData,
     today,
@@ -191,6 +180,61 @@ export default function App() {
     });
   }
 
+  function addRolloverAllocation(amount: number) {
+    setData((current) => {
+      const todayRecord = current.dailyDebtRecords.find((record) => record.date === today);
+      const available = todayRecord?.extraAvailable ?? 0;
+      const allocationAmount = normalizeMoney(amount);
+
+      if (!canAllocateRolloverAmount(allocationAmount, available)) {
+        return current;
+      }
+
+      const now = new Date().toISOString();
+      return {
+        ...current,
+        rolloverAllocations: [
+          ...current.rolloverAllocations,
+          {
+            id: crypto.randomUUID(),
+            sourceDate: today,
+            amount: allocationAmount,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      };
+    });
+  }
+
+  function updateRolloverAllocation(allocationId: string, amount: number) {
+    setData((current) => {
+      const allocation = current.rolloverAllocations.find((item) => item.id === allocationId);
+      if (!allocation) {
+        return current;
+      }
+
+      const consumed = rolloverConsumedByAllocation(current.dailyDebtRecords, allocationId);
+      const nextAmount = normalizeMoney(amount);
+      if (nextAmount < consumed) {
+        return current;
+      }
+
+      return {
+        ...current,
+        rolloverAllocations: current.rolloverAllocations.map((item) =>
+          item.id === allocationId
+            ? {
+                ...item,
+                amount: nextAmount,
+                updatedAt: new Date().toISOString(),
+              }
+            : item,
+        ),
+      };
+    });
+  }
+
   function cycleTheme() {
     setData((current) => ({
       ...current,
@@ -246,6 +290,9 @@ export default function App() {
             onRemoveDebt={removeDebt}
             onAddPayment={addDebtPayment}
             onSaveEarnings={saveEntry}
+            rolloverAllocations={data.rolloverAllocations}
+            onAddRollover={addRolloverAllocation}
+            onUpdateRollover={updateRolloverAllocation}
           />
           <div className="earnings-anchor">
             <EarningsForm
@@ -306,4 +353,109 @@ function TopBar({
       </div>
     </header>
   );
+}
+
+function reconcileDailyDebtRecords({
+  records,
+  debts,
+  debtPayments,
+  earnings,
+  rolloverAllocations,
+  goalDailyTarget,
+  today,
+}: {
+  records: DailyDebtRecord[];
+  debts: Debt[];
+  debtPayments: DebtPayment[];
+  earnings: EarningEntry[];
+  rolloverAllocations: RolloverAllocation[];
+  goalDailyTarget: number;
+  today: string;
+}): DailyDebtRecord[] {
+  let nextRecords = [...records].sort((a, b) => compareCalendarDates(a.date, b.date));
+  const latestRecordDate = nextRecords.at(-1)?.date;
+  let cursor = latestRecordDate && compareCalendarDates(latestRecordDate, today) < 0
+    ? addCalendarDays(latestRecordDate, 1)
+    : today;
+
+  while (compareCalendarDates(cursor, today) <= 0) {
+    nextRecords = upsertDebtRecordForDate({
+      records: nextRecords,
+      debts,
+      debtPayments,
+      earnings,
+      rolloverAllocations,
+      goalDailyTarget,
+      date: cursor,
+      allowRefreshExisting: cursor === today,
+    });
+    cursor = addCalendarDays(cursor, 1);
+  }
+
+  return nextRecords.sort((a, b) => compareCalendarDates(a.date, b.date));
+}
+
+function upsertDebtRecordForDate({
+  records,
+  debts,
+  debtPayments,
+  earnings,
+  rolloverAllocations,
+  goalDailyTarget,
+  date,
+  allowRefreshExisting,
+}: {
+  records: DailyDebtRecord[];
+  debts: Debt[];
+  debtPayments: DebtPayment[];
+  earnings: EarningEntry[];
+  rolloverAllocations: RolloverAllocation[];
+  goalDailyTarget: number;
+  date: string;
+  allowRefreshExisting: boolean;
+}): DailyDebtRecord[] {
+  const existingRecord = records.find((record) => record.date === date);
+  if (existingRecord && !allowRefreshExisting) {
+    return records;
+  }
+
+  const priorRecords = records.filter((record) => compareCalendarDates(record.date, date) < 0);
+  const summary = calculateDebtSummary(debts, date);
+  const rolloverUsage = calculateRolloverUsageForDate(
+    rolloverAllocations,
+    priorRecords,
+    date,
+    summary.todaysRequiredAmount,
+  );
+
+  if (!existingRecord && summary.todaysRequiredAmount <= 0 && rolloverUsage.rolloverApplied <= 0) {
+    return records;
+  }
+
+  const reservedFromExtra = rolloverAllocatedFromDate(rolloverAllocations, date);
+  const nextRecord = existingRecord
+    ? refreshDailyDebtRecord(
+        existingRecord,
+        summary,
+        earnings,
+        debtPayments,
+        debts,
+        goalDailyTarget,
+        rolloverUsage,
+        reservedFromExtra,
+      )
+    : createDailyDebtRecord(
+        date,
+        summary,
+        earnings,
+        debtPayments,
+        debts,
+        goalDailyTarget,
+        rolloverUsage,
+        reservedFromExtra,
+      );
+
+  return existingRecord
+    ? records.map((record) => (record.date === date ? nextRecord : record))
+    : [...records, nextRecord];
 }

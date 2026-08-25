@@ -5,9 +5,11 @@ import type {
   Debt,
   DebtPayment,
   EarningEntry,
+  RolloverAllocation,
+  RolloverConsumption,
 } from "../types";
 import { normalizeMoney } from "./currency";
-import { daysBetweenInclusive, isAfter, maxDate } from "./dates";
+import { compareCalendarDates, daysBetweenInclusive, isAfter, maxDate } from "./dates";
 
 const SOLVER_ITERATIONS = 48;
 
@@ -41,8 +43,15 @@ export interface TodayDebtState {
   progressPercent: number;
   remainingToday: number;
   extraAvailable: number;
+  rolloverApplied: number;
+  earningsAppliedToDebt: number;
   completedDays: number;
   currentStreak: number;
+}
+
+export interface RolloverUsage {
+  rolloverApplied: number;
+  rolloverConsumption: RolloverConsumption[];
 }
 
 export function calculateDebtProjection(
@@ -131,18 +140,30 @@ export function createDailyDebtRecord(
   payments: DebtPayment[],
   debts: Debt[],
   relevantGoalProgress = 0,
+  rolloverUsage: RolloverUsage = { rolloverApplied: 0, rolloverConsumption: [] },
+  rolloverReservedFromExtra = 0,
 ): DailyDebtRecord {
   const earnedToday = earningsForDate(earnings, date);
   const required = summary.todaysRequiredAmount;
-  const completedAmount = normalizeMoney(Math.min(earnedToday, required));
-  const extraAvailable = normalizeMoney(Math.max(earnedToday - required - relevantGoalProgress, 0));
+  const rolloverApplied = normalizeMoney(Math.min(rolloverUsage.rolloverApplied, required));
+  const earningsAppliedToDebt = normalizeMoney(
+    Math.min(earnedToday, Math.max(required - rolloverApplied, 0)),
+  );
+  const completedAmount = normalizeMoney(Math.min(rolloverApplied + earningsAppliedToDebt, required));
+  const extraAvailable = normalizeMoney(
+    Math.max(earnedToday - earningsAppliedToDebt - relevantGoalProgress - rolloverReservedFromExtra, 0),
+  );
   const now = new Date().toISOString();
 
   return {
     date,
     requiredDebtAmount: required,
+    rolloverApplied,
+    rolloverConsumption: rolloverUsage.rolloverConsumption,
+    earningsAppliedToDebt,
     completedAmount,
-    completed: required === 0 ? false : earnedToday >= required,
+    completed: required > 0 && completedAmount >= required,
+    completionSource: getCompletionSource(required, completedAmount, rolloverApplied, earningsAppliedToDebt),
     earnings: earnedToday,
     extraAvailable,
     debtContributions: summary.breakdown,
@@ -160,23 +181,42 @@ export function refreshDailyDebtRecord(
   payments: DebtPayment[],
   debts: Debt[],
   relevantGoalProgress = record.relevantGoalProgress,
+  rolloverUsage: RolloverUsage = {
+    rolloverApplied: record.rolloverApplied,
+    rolloverConsumption: record.rolloverConsumption,
+  },
+  rolloverReservedFromExtra = 0,
 ): DailyDebtRecord {
   const earnedToday = earningsForDate(earnings, record.date);
   const requiredDebtAmount = summary.todaysRequiredAmount;
-  const completedAmount = normalizeMoney(Math.min(earnedToday, requiredDebtAmount));
+  const rolloverApplied = normalizeMoney(Math.min(rolloverUsage.rolloverApplied, requiredDebtAmount));
+  const earningsAppliedToDebt = normalizeMoney(
+    Math.min(earnedToday, Math.max(requiredDebtAmount - rolloverApplied, 0)),
+  );
+  const completedAmount = normalizeMoney(Math.min(rolloverApplied + earningsAppliedToDebt, requiredDebtAmount));
   const extraAvailable = normalizeMoney(
-    Math.max(earnedToday - requiredDebtAmount - relevantGoalProgress, 0),
+    Math.max(earnedToday - earningsAppliedToDebt - relevantGoalProgress - rolloverReservedFromExtra, 0),
   );
   const additionalPayments = paymentsForDate(payments, debts, record.date);
-  const completed = requiredDebtAmount > 0 && earnedToday >= requiredDebtAmount;
+  const completed = requiredDebtAmount > 0 && completedAmount >= requiredDebtAmount;
+  const completionSource = getCompletionSource(
+    requiredDebtAmount,
+    completedAmount,
+    rolloverApplied,
+    earningsAppliedToDebt,
+  );
 
   if (
     record.requiredDebtAmount === requiredDebtAmount &&
+    record.rolloverApplied === rolloverApplied &&
+    JSON.stringify(record.rolloverConsumption) === JSON.stringify(rolloverUsage.rolloverConsumption) &&
     JSON.stringify(record.debtContributions) === JSON.stringify(summary.breakdown) &&
     record.earnings === earnedToday &&
+    record.earningsAppliedToDebt === earningsAppliedToDebt &&
     record.completedAmount === completedAmount &&
     record.completed === completed &&
     record.extraAvailable === extraAvailable &&
+    record.completionSource === completionSource &&
     record.relevantGoalProgress === relevantGoalProgress &&
     JSON.stringify(record.additionalPayments) === JSON.stringify(additionalPayments)
   ) {
@@ -186,11 +226,15 @@ export function refreshDailyDebtRecord(
   return {
     ...record,
     requiredDebtAmount,
+    rolloverApplied,
+    rolloverConsumption: rolloverUsage.rolloverConsumption,
     debtContributions: summary.breakdown,
     earnings: earnedToday,
+    earningsAppliedToDebt,
     completedAmount,
     completed,
     extraAvailable,
+    completionSource,
     additionalPayments,
     relevantGoalProgress,
     updatedAt: new Date().toISOString(),
@@ -215,9 +259,89 @@ export function calculateTodayDebtState(
         : 0,
     remainingToday: normalizeMoney(Math.max(record.requiredDebtAmount - record.completedAmount, 0)),
     extraAvailable: record.extraAvailable,
+    rolloverApplied: record.rolloverApplied,
+    earningsAppliedToDebt: record.earningsAppliedToDebt,
     completedDays: records.filter((item) => item.completed).length,
     currentStreak: calculateCurrentStreak(records, today),
   };
+}
+
+export function calculateRolloverUsageForDate(
+  allocations: RolloverAllocation[],
+  records: DailyDebtRecord[],
+  date: CalendarDateString,
+  normalRequirement: number,
+): RolloverUsage {
+  let remainingRequirement = normalRequirement;
+  const rolloverConsumption: RolloverConsumption[] = [];
+
+  const orderedAllocations = [...allocations]
+    .filter((allocation) => compareCalendarDates(allocation.sourceDate, date) < 0)
+    .sort((a, b) => {
+      const dateOrder = compareCalendarDates(a.sourceDate, b.sourceDate);
+      return dateOrder === 0 ? a.createdAt.localeCompare(b.createdAt) : dateOrder;
+    });
+
+  for (const allocation of orderedAllocations) {
+    if (remainingRequirement <= 0) {
+      break;
+    }
+
+    const consumedBeforeDate = rolloverConsumedByAllocation(records, allocation.id, date);
+    const available = normalizeMoney(Math.max(allocation.amount - consumedBeforeDate, 0));
+    const amount = normalizeMoney(Math.min(available, remainingRequirement));
+
+    if (amount > 0) {
+      rolloverConsumption.push({ allocationId: allocation.id, amount });
+      remainingRequirement = normalizeMoney(remainingRequirement - amount);
+    }
+  }
+
+  return {
+    rolloverApplied: sumMoney(rolloverConsumption.map((item) => item.amount)),
+    rolloverConsumption,
+  };
+}
+
+export function rolloverAllocatedFromDate(
+  allocations: RolloverAllocation[],
+  sourceDate: CalendarDateString,
+): number {
+  return sumMoney(
+    allocations
+      .filter((allocation) => allocation.sourceDate === sourceDate)
+      .map((allocation) => allocation.amount),
+  );
+}
+
+export function rolloverConsumedByAllocation(
+  records: DailyDebtRecord[],
+  allocationId: string,
+  beforeDate?: CalendarDateString,
+): number {
+  return sumMoney(
+    records
+      .filter((record) => !beforeDate || compareCalendarDates(record.date, beforeDate) < 0)
+      .flatMap((record) => record.rolloverConsumption)
+      .filter((usage) => usage.allocationId === allocationId)
+      .map((usage) => usage.amount),
+  );
+}
+
+export function rolloverUnusedAmount(
+  allocation: RolloverAllocation,
+  records: DailyDebtRecord[],
+): number {
+  return normalizeMoney(Math.max(allocation.amount - rolloverConsumedByAllocation(records, allocation.id), 0));
+}
+
+export function canAllocateRolloverAmount(amount: number, availableExtra: number): boolean {
+  return (
+    Number.isFinite(amount) &&
+    Number.isFinite(availableExtra) &&
+    amount > 0 &&
+    amount <= normalizeMoney(availableExtra)
+  );
 }
 
 export function applyDebtPayment(
@@ -330,6 +454,31 @@ function calculateCurrentStreak(records: DailyDebtRecord[], today: CalendarDateS
   }
 
   return streak;
+}
+
+function getCompletionSource(
+  requiredAmount: number,
+  completedAmount: number,
+  rolloverApplied: number,
+  earningsAppliedToDebt: number,
+): DailyDebtRecord["completionSource"] {
+  if (requiredAmount <= 0 || completedAmount <= 0) {
+    return "none";
+  }
+
+  if (completedAmount < requiredAmount) {
+    return "partial";
+  }
+
+  if (rolloverApplied >= requiredAmount && earningsAppliedToDebt === 0) {
+    return "rollover";
+  }
+
+  if (rolloverApplied > 0 && earningsAppliedToDebt > 0) {
+    return "mixed";
+  }
+
+  return "earnings";
 }
 
 function sumMoney(values: number[]): number {

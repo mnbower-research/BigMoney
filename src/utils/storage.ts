@@ -6,6 +6,7 @@ import type {
   EarningEntry,
   Goal,
   ImportValidationResult,
+  RolloverAllocation,
   ThemePreference,
 } from "../types";
 import { isCalendarDateString, isAfter } from "./dates";
@@ -13,12 +14,13 @@ import { isCalendarDateString, isAfter } from "./dates";
 export const STORAGE_KEY = "bigmoney-app-data-v1";
 
 export const emptyAppData: AppData = {
-  version: 2,
+  version: 3,
   goal: null,
   earnings: [],
   debts: [],
   debtPayments: [],
   dailyDebtRecords: [],
+  rolloverAllocations: [],
   theme: "system",
 };
 
@@ -48,7 +50,7 @@ export function validateImportedData(value: unknown): ImportValidationResult {
     return { ok: false, errors: ["Import must be a JSON object."] };
   }
 
-  if (value.version !== 1 && value.version !== 2) {
+  if (value.version !== 1 && value.version !== 2 && value.version !== 3) {
     errors.push("Unsupported or missing app data version.");
   }
 
@@ -85,19 +87,19 @@ export function validateImportedData(value: unknown): ImportValidationResult {
   const debts = value.version === 1 ? [] : value.debts;
   const parsedDebts: Debt[] | undefined =
     Array.isArray(debts) && debts.every(isDebt) ? debts : undefined;
-  if (value.version === 2 && !Array.isArray(debts)) {
+  if (value.version !== 1 && !Array.isArray(debts)) {
     errors.push("Debts must be an array.");
-  } else if (value.version === 2 && Array.isArray(debts) && !debts.every(isDebt)) {
+  } else if (value.version !== 1 && Array.isArray(debts) && !debts.every(isDebt)) {
     errors.push("One or more debts are invalid.");
   }
 
   const debtPayments = value.version === 1 ? [] : value.debtPayments;
   const parsedDebtPayments: DebtPayment[] | undefined =
     Array.isArray(debtPayments) && debtPayments.every(isDebtPayment) ? debtPayments : undefined;
-  if (value.version === 2 && !Array.isArray(debtPayments)) {
+  if (value.version !== 1 && !Array.isArray(debtPayments)) {
     errors.push("Debt payments must be an array.");
   } else if (
-    value.version === 2 &&
+    value.version !== 1 &&
     Array.isArray(debtPayments) &&
     !debtPayments.every(isDebtPayment)
   ) {
@@ -106,17 +108,32 @@ export function validateImportedData(value: unknown): ImportValidationResult {
 
   const dailyDebtRecords = value.version === 1 ? [] : value.dailyDebtRecords;
   const parsedDailyDebtRecords: DailyDebtRecord[] | undefined =
-    Array.isArray(dailyDebtRecords) && dailyDebtRecords.every(isDailyDebtRecord)
-      ? dailyDebtRecords
+    Array.isArray(dailyDebtRecords) && dailyDebtRecords.every(isDailyDebtRecordLike)
+      ? dailyDebtRecords.map(migrateDailyDebtRecord)
       : undefined;
-  if (value.version === 2 && !Array.isArray(dailyDebtRecords)) {
+  if (value.version !== 1 && !Array.isArray(dailyDebtRecords)) {
     errors.push("Daily debt records must be an array.");
   } else if (
-    value.version === 2 &&
+    value.version !== 1 &&
     Array.isArray(dailyDebtRecords) &&
-    !dailyDebtRecords.every(isDailyDebtRecord)
+    !dailyDebtRecords.every(isDailyDebtRecordLike)
   ) {
     errors.push("One or more daily debt records are invalid.");
+  }
+
+  const rolloverAllocations = value.version === 3 ? value.rolloverAllocations : [];
+  const parsedRolloverAllocations: RolloverAllocation[] | undefined =
+    Array.isArray(rolloverAllocations) && rolloverAllocations.every(isRolloverAllocation)
+      ? rolloverAllocations
+      : undefined;
+  if (value.version === 3 && !Array.isArray(rolloverAllocations)) {
+    errors.push("Rollover allocations must be an array.");
+  } else if (
+    value.version === 3 &&
+    Array.isArray(rolloverAllocations) &&
+    !rolloverAllocations.every(isRolloverAllocation)
+  ) {
+    errors.push("One or more rollover allocations are invalid.");
   }
 
   if (
@@ -126,7 +143,8 @@ export function validateImportedData(value: unknown): ImportValidationResult {
     !parsedTheme ||
     !parsedDebts ||
     !parsedDebtPayments ||
-    !parsedDailyDebtRecords
+    !parsedDailyDebtRecords ||
+    !parsedRolloverAllocations
   ) {
     return { ok: false, errors };
   }
@@ -135,12 +153,13 @@ export function validateImportedData(value: unknown): ImportValidationResult {
     ok: true,
     errors: [],
     data: {
-      version: 2,
+      version: 3,
       goal: parsedGoal,
       earnings: parsedEarnings,
       debts: parsedDebts,
       debtPayments: parsedDebtPayments,
       dailyDebtRecords: parsedDailyDebtRecords,
+      rolloverAllocations: parsedRolloverAllocations,
       theme: parsedTheme,
     },
   };
@@ -229,7 +248,7 @@ function isDebtPayment(value: unknown): value is DebtPayment {
   );
 }
 
-function isDailyDebtRecord(value: unknown): value is DailyDebtRecord {
+function isDailyDebtRecordLike(value: unknown): boolean {
   if (!isPlainObject(value)) {
     return false;
   }
@@ -239,6 +258,17 @@ function isDailyDebtRecord(value: unknown): value is DailyDebtRecord {
     typeof value.requiredDebtAmount === "number" &&
     Number.isFinite(value.requiredDebtAmount) &&
     value.requiredDebtAmount >= 0 &&
+    (value.rolloverApplied === undefined ||
+      (typeof value.rolloverApplied === "number" &&
+        Number.isFinite(value.rolloverApplied) &&
+        value.rolloverApplied >= 0)) &&
+    (value.rolloverConsumption === undefined ||
+      (Array.isArray(value.rolloverConsumption) &&
+        value.rolloverConsumption.every(isRolloverConsumption))) &&
+    (value.earningsAppliedToDebt === undefined ||
+      (typeof value.earningsAppliedToDebt === "number" &&
+        Number.isFinite(value.earningsAppliedToDebt) &&
+        value.earningsAppliedToDebt >= 0)) &&
     typeof value.completedAmount === "number" &&
     Number.isFinite(value.completedAmount) &&
     value.completedAmount >= 0 &&
@@ -249,6 +279,7 @@ function isDailyDebtRecord(value: unknown): value is DailyDebtRecord {
     typeof value.extraAvailable === "number" &&
     Number.isFinite(value.extraAvailable) &&
     value.extraAvailable >= 0 &&
+    (value.completionSource === undefined || isCompletionSource(value.completionSource)) &&
     Array.isArray(value.debtContributions) &&
     value.debtContributions.every(isDailyDebtBreakdown) &&
     Array.isArray(value.additionalPayments) &&
@@ -258,6 +289,58 @@ function isDailyDebtRecord(value: unknown): value is DailyDebtRecord {
     value.relevantGoalProgress >= 0 &&
     typeof value.createdAt === "string" &&
     typeof value.updatedAt === "string"
+  );
+}
+
+function migrateDailyDebtRecord(value: unknown): DailyDebtRecord {
+  const record = value as DailyDebtRecord;
+  const earningsAppliedToDebt =
+    record.earningsAppliedToDebt ?? Math.min(record.earnings, record.requiredDebtAmount);
+
+  return {
+    ...record,
+    rolloverApplied: record.rolloverApplied ?? 0,
+    rolloverConsumption: record.rolloverConsumption ?? [],
+    earningsAppliedToDebt,
+    completionSource:
+      record.completionSource ??
+      (record.completed ? "earnings" : record.completedAmount > 0 ? "partial" : "none"),
+  };
+}
+
+function isRolloverAllocation(value: unknown): value is RolloverAllocation {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.id === "string" &&
+    isCalendarDateString(value.sourceDate) &&
+    typeof value.amount === "number" &&
+    Number.isFinite(value.amount) &&
+    value.amount >= 0 &&
+    typeof value.createdAt === "string" &&
+    typeof value.updatedAt === "string"
+  );
+}
+
+function isRolloverConsumption(value: unknown): boolean {
+  return (
+    isPlainObject(value) &&
+    typeof value.allocationId === "string" &&
+    typeof value.amount === "number" &&
+    Number.isFinite(value.amount) &&
+    value.amount >= 0
+  );
+}
+
+function isCompletionSource(value: unknown): boolean {
+  return (
+    value === "earnings" ||
+    value === "rollover" ||
+    value === "mixed" ||
+    value === "partial" ||
+    value === "none"
   );
 }
 

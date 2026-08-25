@@ -1,10 +1,15 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { CalendarDateString, DailyDebtRecord, Debt, DebtPayment, EarningEntry } from "../types";
+import type { CalendarDateString, DailyDebtRecord, Debt, DebtPayment, EarningEntry, RolloverAllocation } from "../types";
 import {
   calculateDebtSummary,
+  calculateRolloverUsageForDate,
+  canAllocateRolloverAmount,
   calculateTodayDebtState,
   createDailyDebtRecord,
   refreshDailyDebtRecord,
+  rolloverAllocatedFromDate,
+  rolloverConsumedByAllocation,
+  rolloverUnusedAmount,
   type DebtProjection,
 } from "../utils/debtCalculations";
 import { formatCurrency } from "../utils/currency";
@@ -21,6 +26,9 @@ interface DebtDashboardProps {
   onRemoveDebt: (debtId: string) => void;
   onAddPayment: (debtId: string, amount: number, note: string) => void;
   onSaveEarnings: (entry: EarningEntry) => void;
+  rolloverAllocations: RolloverAllocation[];
+  onAddRollover: (amount: number) => void;
+  onUpdateRollover: (allocationId: string, amount: number) => void;
 }
 
 export function DebtDashboard({
@@ -34,6 +42,9 @@ export function DebtDashboard({
   onRemoveDebt,
   onAddPayment,
   onSaveEarnings,
+  rolloverAllocations,
+  onAddRollover,
+  onUpdateRollover,
 }: DebtDashboardProps) {
   const [editingDebt, setEditingDebt] = useState<Debt | null>(null);
   const [showDebtForm, setShowDebtForm] = useState(false);
@@ -43,6 +54,10 @@ export function DebtDashboard({
   const [showQuickEarnings, setShowQuickEarnings] = useState(false);
   const [quickAmount, setQuickAmount] = useState("");
   const [quickNote, setQuickNote] = useState("");
+  const [showRolloverForm, setShowRolloverForm] = useState(false);
+  const [rolloverAmount, setRolloverAmount] = useState("");
+  const [editingRolloverId, setEditingRolloverId] = useState("");
+  const [editingRolloverAmount, setEditingRolloverAmount] = useState("");
   const quickAmountRef = useRef<HTMLInputElement | null>(null);
   const quickAmountValue = Number(quickAmount);
   const quickAmountIsValid = Number.isFinite(quickAmountValue) && quickAmountValue > 0;
@@ -58,29 +73,66 @@ export function DebtDashboard({
         debtPayments,
         debts,
         goalDailyTarget,
+        calculateRolloverUsageForDate(
+          rolloverAllocations,
+          dailyDebtRecords.filter((record) => compareCalendarDates(record.date, today) < 0),
+          today,
+          summary.todaysRequiredAmount,
+        ),
+        rolloverAllocatedFromDate(rolloverAllocations, today),
       );
 
       return dailyDebtRecords.map((record) => (record.date === today ? liveRecord : record));
     }
 
-    if (summary.todaysRequiredAmount <= 0) {
+    const rolloverUsage = calculateRolloverUsageForDate(
+      rolloverAllocations,
+      dailyDebtRecords.filter((record) => compareCalendarDates(record.date, today) < 0),
+      today,
+      summary.todaysRequiredAmount,
+    );
+
+    if (summary.todaysRequiredAmount <= 0 && rolloverUsage.rolloverApplied <= 0) {
       return dailyDebtRecords;
     }
 
     return [
       ...dailyDebtRecords,
-      createDailyDebtRecord(today, summary, earnings, debtPayments, debts, goalDailyTarget),
+      createDailyDebtRecord(
+        today,
+        summary,
+        earnings,
+        debtPayments,
+        debts,
+        goalDailyTarget,
+        rolloverUsage,
+        rolloverAllocatedFromDate(rolloverAllocations, today),
+      ),
     ];
-  }, [dailyDebtRecords, debtPayments, debts, earnings, goalDailyTarget, summary, today]);
+  }, [dailyDebtRecords, debtPayments, debts, earnings, goalDailyTarget, rolloverAllocations, summary, today]);
   const todayState = calculateTodayDebtState(liveDailyDebtRecords, today);
+  const todayRecord = todayState?.record;
   const progressPercent = todayState?.progressPercent ?? 0;
   const isComplete = Boolean(todayState?.record.completed);
+  const isPaidInAdvance = todayRecord?.completionSource === "rollover";
   const isNearGoal = !isComplete && progressPercent >= 75;
   const goalMoodClass = isComplete ? "complete" : isNearGoal ? "near-goal" : "";
   const [showCelebration, setShowCelebration] = useState(false);
   const wasCompleteRef = useRef(isComplete);
   const paidDebts = debts.filter((debt) => debt.status === "paid" || debt.status === "archived");
   const activeDebts = debts.filter((debt) => debt.status === "active");
+  const availableExtra = todayState?.extraAvailable ?? 0;
+  const rolloverAmountValue = Number(rolloverAmount);
+  const rolloverAmountIsValid = canAllocateRolloverAmount(rolloverAmountValue, availableExtra);
+  const rolloverDetails = rolloverAllocations
+    .map((allocation) => {
+      const consumed = rolloverConsumedByAllocation(liveDailyDebtRecords, allocation.id);
+      const unused = rolloverUnusedAmount(allocation, liveDailyDebtRecords);
+      return { allocation, consumed, unused };
+    })
+    .filter((item) => item.unused > 0 || item.consumed > 0)
+    .sort((a, b) => compareCalendarDates(a.allocation.sourceDate, b.allocation.sourceDate));
+  const totalReservedForFuture = rolloverDetails.reduce((sum, item) => sum + item.unused, 0);
 
   useEffect(() => {
     if (isComplete && !wasCompleteRef.current) {
@@ -144,6 +196,45 @@ export function DebtDashboard({
     setShowQuickEarnings(false);
   }
 
+  function submitRollover(event: FormEvent) {
+    event.preventDefault();
+    if (!rolloverAmountIsValid) {
+      return;
+    }
+
+    onAddRollover(rolloverAmountValue);
+    setRolloverAmount("");
+    setShowRolloverForm(false);
+  }
+
+  function useAllExtraForRollover() {
+    if (availableExtra <= 0) {
+      return;
+    }
+
+    onAddRollover(availableExtra);
+    setRolloverAmount("");
+    setShowRolloverForm(false);
+  }
+
+  function startEditRollover(allocation: RolloverAllocation) {
+    setEditingRolloverId(allocation.id);
+    setEditingRolloverAmount(String(allocation.amount));
+  }
+
+  function submitRolloverEdit(event: FormEvent, allocation: RolloverAllocation, consumed: number) {
+    event.preventDefault();
+    const nextAmount = Number(editingRolloverAmount);
+
+    if (!Number.isFinite(nextAmount) || nextAmount < consumed) {
+      return;
+    }
+
+    onUpdateRollover(allocation.id, nextAmount);
+    setEditingRolloverId("");
+    setEditingRolloverAmount("");
+  }
+
   return (
     <div className="stack debt-stack">
       <section className={`dashboard-hero debt-hero ${goalMoodClass}`}>
@@ -152,13 +243,20 @@ export function DebtDashboard({
           <p className="eyebrow">Today's debt</p>
           <h1>
             {isComplete
-              ? "No debt today!"
+              ? isPaidInAdvance ? "Paid in advance!" : "No debt today!"
               : `${formatCurrency(todayState?.remainingToday ?? 0)} remaining today`}
           </h1>
           <p>
-            {formatCurrency(todayState?.earnedToday ?? 0)} /{" "}
-            {formatCurrency(todayState?.record.requiredDebtAmount ?? 0)}
+            {formatCurrency(todayRecord?.completedAmount ?? 0)} /{" "}
+            {formatCurrency(todayRecord?.requiredDebtAmount ?? 0)}
           </p>
+          {todayRecord && todayRecord.rolloverApplied > 0 && (
+            <div className="prefund-summary" aria-label="Prefunded debt details">
+              <span>Normal target {formatCurrency(todayRecord.requiredDebtAmount)}</span>
+              <span>Pre-funded -{formatCurrency(todayRecord.rolloverApplied)}</span>
+              <span>New earnings {formatCurrency(todayRecord.earningsAppliedToDebt)}</span>
+            </div>
+          )}
           <div className="quick-earnings-shell">
             <button
               type="button"
@@ -215,9 +313,18 @@ export function DebtDashboard({
               Almost there - {formatCurrency(todayState?.remainingToday ?? 0)} left.
             </p>
           )}
-          {isComplete && <p className="success-text dopamine-text">You're clear for today. Nice work.</p>}
+          {isComplete && (
+            <p className="success-text dopamine-text">
+              {isPaidInAdvance ? "Tomorrow-you already did the work." : "You're clear for today. Nice work."}
+            </p>
+          )}
           {todayState && todayState.extraAvailable > 0 && (
             <p className="success-text">Extra available: {formatCurrency(todayState.extraAvailable)}</p>
+          )}
+          {totalReservedForFuture > 0 && (
+            <p className="inline-note">
+              Future debt reserved: {formatCurrency(totalReservedForFuture)}
+            </p>
           )}
         </div>
 
@@ -304,20 +411,132 @@ export function DebtDashboard({
         )}
       </section>
 
-      {todayState && todayState.extraAvailable > 0 && activeDebts.length > 0 && (
+      {todayState && (availableExtra > 0 || totalReservedForFuture > 0) && (
         <section className="panel">
           <div className="section-heading">
             <div>
               <p className="eyebrow">Extra money</p>
-              <h2>Put extra toward debt</h2>
+              <h2>A good day can make tomorrow lighter</h2>
+              <p className="inline-note">
+                Still available: {formatCurrency(availableExtra)}
+                {totalReservedForFuture > 0 && ` · Reserved for future debt: ${formatCurrency(totalReservedForFuture)}`}
+              </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => startPayment(activeDebts[0].id, String(todayState.extraAvailable))}
-          >
-            Put Extra Toward Debt
-          </button>
+
+          {availableExtra > 0 && (
+            <div className="rollover-actions">
+              <button type="button" onClick={useAllExtraForRollover}>
+                Fund Tomorrow
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  setShowRolloverForm((value) => !value);
+                  setRolloverAmount("");
+                }}
+              >
+                Choose Amount
+              </button>
+              {activeDebts.length > 0 && (
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => startPayment(activeDebts[0].id, String(availableExtra))}
+                >
+                  Record creditor payment
+                </button>
+              )}
+            </div>
+          )}
+
+          {showRolloverForm && availableExtra > 0 && (
+            <form className="rollover-form" onSubmit={submitRollover} noValidate>
+              <label>
+                Reserve amount
+                <input
+                  type="number"
+                  min="0.01"
+                  max={availableExtra}
+                  step="0.01"
+                  value={rolloverAmount}
+                  onChange={(event) => setRolloverAmount(event.target.value)}
+                  placeholder="0.00"
+                  required
+                />
+              </label>
+              <div className="actions">
+                <button type="button" className="secondary" onClick={() => setShowRolloverForm(false)}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={!rolloverAmountIsValid}>
+                  Reserve for tomorrow
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
+      )}
+
+      {rolloverDetails.length > 0 && (
+        <section className="panel">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Reserved debt funds</p>
+              <h2>{formatCurrency(totalReservedForFuture)} ready for future days</h2>
+            </div>
+          </div>
+          <div className="daily-summary">
+            {rolloverDetails.map(({ allocation, consumed, unused }) => (
+              <div className="summary-row rollover-row" key={allocation.id}>
+                <span>
+                  From {formatDisplayDate(allocation.sourceDate)}
+                  <small>
+                    {formatCurrency(unused)} unused
+                    {consumed > 0 && ` · ${formatCurrency(consumed)} already used`}
+                  </small>
+                </span>
+                {editingRolloverId === allocation.id ? (
+                  <form
+                    className="inline-edit-form"
+                    onSubmit={(event) => submitRolloverEdit(event, allocation, consumed)}
+                  >
+                    <input
+                      type="number"
+                      min={consumed}
+                      step="0.01"
+                      value={editingRolloverAmount}
+                      onChange={(event) => setEditingRolloverAmount(event.target.value)}
+                    />
+                    <button
+                      type="submit"
+                      className="small"
+                      disabled={Number(editingRolloverAmount) < consumed}
+                    >
+                      Save
+                    </button>
+                  </form>
+                ) : (
+                  <strong>{formatCurrency(allocation.amount)}</strong>
+                )}
+                <div className="row-actions">
+                  <button type="button" className="secondary small" onClick={() => startEditRollover(allocation)}>
+                    Edit
+                  </button>
+                  {unused > 0 && (
+                    <button
+                      type="button"
+                      className="secondary small"
+                      onClick={() => onUpdateRollover(allocation.id, consumed)}
+                    >
+                      Return unused
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </section>
       )}
 
@@ -612,7 +831,11 @@ function DebtHistory({ records }: { records: DailyDebtRecord[] }) {
             {record.completed ? "✓ " : ""}
             {formatCurrency(record.completedAmount)} / {formatCurrency(record.requiredDebtAmount)}
           </strong>
-          <small>Extra {formatCurrency(record.extraAvailable)}</small>
+          <small>
+            {record.rolloverApplied > 0
+              ? `Pre-funded ${formatCurrency(record.rolloverApplied)}`
+              : `Extra ${formatCurrency(record.extraAvailable)}`}
+          </small>
         </div>
       ))}
     </div>

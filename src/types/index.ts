@@ -44,6 +44,19 @@ export interface DebtPayment {
   createdAt: string;
 }
 
+export interface RolloverAllocation {
+  id: string;
+  sourceDate: CalendarDateString;
+  amount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RolloverConsumption {
+  allocationId: string;
+  amount: number;
+}
+
 export interface DailyDebtBreakdown {
   debtId: string;
   debtName: string;
@@ -53,10 +66,14 @@ export interface DailyDebtBreakdown {
 export interface DailyDebtRecord {
   date: CalendarDateString;
   requiredDebtAmount: number;
+  rolloverApplied: number;
+  rolloverConsumption: RolloverConsumption[];
+  earningsAppliedToDebt: number;
   completedAmount: number;
   completed: boolean;
   earnings: number;
   extraAvailable: number;
+  completionSource: "earnings" | "rollover" | "mixed" | "partial" | "none";
   debtContributions: DailyDebtBreakdown[];
   additionalPayments: Array<{
     debtId: string;
@@ -69,12 +86,13 @@ export interface DailyDebtRecord {
 }
 
 export interface AppData {
-  version: 2;
+  version: 3;
   goal: Goal | null;
   earnings: EarningEntry[];
   debts: Debt[];
   debtPayments: DebtPayment[];
   dailyDebtRecords: DailyDebtRecord[];
+  rolloverAllocations: RolloverAllocation[];
   theme: ThemePreference;
 }
 

@@ -523,6 +523,58 @@ label {
   gap: 0.55rem;
 }
 
+.prefund-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.8rem;
+}
+
+.prefund-summary span {
+  border: 1px solid color-mix(in srgb, var(--joy-green), var(--border) 55%);
+  border-radius: 999px;
+  padding: 0.32rem 0.55rem;
+  background: color-mix(in srgb, var(--joy-green), transparent 88%);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.rollover-actions,
+.rollover-form,
+.inline-edit-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.rollover-form {
+  margin-top: 1rem;
+}
+
+.rollover-form label {
+  min-width: min(100%, 14rem);
+}
+
+.rollover-row > span {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.rollover-row small {
+  color: var(--muted);
+}
+
+.inline-edit-form {
+  justify-content: flex-end;
+}
+
+.inline-edit-form input {
+  width: 8rem;
+  padding: 0.45rem 0.55rem;
+}
+
 .debt-hero.near-goal,
 .money-goal-hero.goal-near {
   border-color: color-mix(in srgb, var(--joy-gold), var(--border) 45%);
