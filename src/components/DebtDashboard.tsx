@@ -1,7 +1,8 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { CalendarDateString, DailyDebtRecord, Debt, DebtPayment, EarningEntry, RolloverAllocation } from "../types";
 import {
   calculateDebtSummary,
+  calculateFutureReliefSummary,
   calculateRolloverUsageForDate,
   canAllocateRolloverAmount,
   calculateTodayDebtState,
@@ -10,9 +11,12 @@ import {
   rolloverAllocatedFromDate,
   rolloverConsumedByAllocation,
   rolloverUnusedAmount,
+  type DebtSummary,
   type DebtProjection,
+  type FutureReliefSummary as FutureReliefData,
+  type TodayDebtState,
 } from "../utils/debtCalculations";
-import { formatCurrency } from "../utils/currency";
+import { formatCurrency, formatPercent } from "../utils/currency";
 import { compareCalendarDates, formatDisplayDate, isBefore } from "../utils/dates";
 
 interface DebtDashboardProps {
@@ -112,6 +116,10 @@ export function DebtDashboard({
   }, [dailyDebtRecords, debtPayments, debts, earnings, goalDailyTarget, rolloverAllocations, summary, today]);
   const todayState = calculateTodayDebtState(liveDailyDebtRecords, today);
   const todayRecord = todayState?.record;
+  const futureRelief = useMemo(
+    () => calculateFutureReliefSummary(rolloverAllocations, liveDailyDebtRecords, debts, today),
+    [debts, liveDailyDebtRecords, rolloverAllocations, today],
+  );
   const progressPercent = todayState?.progressPercent ?? 0;
   const isComplete = Boolean(todayState?.record.completed);
   const isPaidInAdvance = todayRecord?.completionSource === "rollover";
@@ -132,7 +140,7 @@ export function DebtDashboard({
     })
     .filter((item) => item.unused > 0 || item.consumed > 0)
     .sort((a, b) => compareCalendarDates(a.allocation.sourceDate, b.allocation.sourceDate));
-  const totalReservedForFuture = rolloverDetails.reduce((sum, item) => sum + item.unused, 0);
+  const totalReservedForFuture = futureRelief.totalReservedAmount;
 
   useEffect(() => {
     if (isComplete && !wasCompleteRef.current) {
@@ -237,222 +245,100 @@ export function DebtDashboard({
 
   return (
     <div className="stack debt-stack">
-      <section className={`dashboard-hero debt-hero ${goalMoodClass}`}>
+      <section className={`today-command ${goalMoodClass}`}>
         {showCelebration && <CompletionBurst />}
-        <div className="hero-copy">
-          <p className="eyebrow">Today's debt</p>
-          <h1>
-            {isComplete
-              ? isPaidInAdvance ? "Paid in advance!" : "No debt today!"
-              : `${formatCurrency(todayState?.remainingToday ?? 0)} remaining today`}
-          </h1>
-          <p>
-            {formatCurrency(todayRecord?.completedAmount ?? 0)} /{" "}
-            {formatCurrency(todayRecord?.requiredDebtAmount ?? 0)}
-          </p>
-          {todayRecord && todayRecord.rolloverApplied > 0 && (
-            <div className="prefund-summary" aria-label="Prefunded debt details">
-              <span>Normal target {formatCurrency(todayRecord.requiredDebtAmount)}</span>
-              <span>Pre-funded -{formatCurrency(todayRecord.rolloverApplied)}</span>
-              <span>New earnings {formatCurrency(todayRecord.earningsAppliedToDebt)}</span>
-            </div>
-          )}
-          <div className="quick-earnings-shell">
-            <button
-              type="button"
-              className="debt-quick-action"
-              onClick={() => setShowQuickEarnings((value) => !value)}
-              aria-expanded={showQuickEarnings}
-              aria-controls="quick-earnings-menu"
-            >
-              {showQuickEarnings ? "Close" : "Add earnings"}
-            </button>
-            {showQuickEarnings && (
-              <form
-                id="quick-earnings-menu"
-                className="quick-earnings-menu"
-                onSubmit={submitQuickEarnings}
-                noValidate
-              >
-                <label>
-                  Amount
-                  <input
-                    ref={quickAmountRef}
-                    type="number"
-                    inputMode="decimal"
-                    min="0.01"
-                    step="0.01"
-                    value={quickAmount}
-                    onChange={(event) => setQuickAmount(event.target.value)}
-                    placeholder="0.00"
-                    required
-                  />
-                </label>
-                <label>
-                  Note <span className="muted">(optional)</span>
-                  <input
-                    type="text"
-                    value={quickNote}
-                    onChange={(event) => setQuickNote(event.target.value)}
-                    placeholder="Side gig, sale, cash"
-                  />
-                </label>
-                <div className="quick-earnings-actions">
-                  <button type="button" className="secondary small" onClick={() => setShowQuickEarnings(false)}>
-                    Cancel
-                  </button>
-                  <button type="submit" className="small" disabled={!quickAmountIsValid}>
-                    Save
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-          {isNearGoal && (
-            <p className="near-goal-text">
-              Almost there - {formatCurrency(todayState?.remainingToday ?? 0)} left.
-            </p>
-          )}
-          {isComplete && (
-            <p className="success-text dopamine-text">
-              {isPaidInAdvance ? "Tomorrow-you already did the work." : "You're clear for today. Nice work."}
-            </p>
-          )}
-          {todayState && todayState.extraAvailable > 0 && (
-            <p className="success-text">Extra available: {formatCurrency(todayState.extraAvailable)}</p>
-          )}
-          {totalReservedForFuture > 0 && (
-            <p className="inline-note">
-              Future debt reserved: {formatCurrency(totalReservedForFuture)}
-            </p>
-          )}
-        </div>
-
-        <div className="debt-accomplishments">
-          <strong>{todayState?.completedDays ?? 0}</strong>
-          <span>Debt days completed</span>
-          <strong>{summary.debtDaysLeft}</strong>
-          <span>Debt days left</span>
-          <strong>{todayState?.currentStreak ?? 0}</strong>
-          <span>Current streak</span>
-        </div>
-
-        <div className="progress-wrap">
-          <div className="progress-bar debt-meter">
-            <span style={{ width: `${progressPercent}%` }} />
-          </div>
-          <div className="progress-meta">
-            <strong>{Math.round(progressPercent)}%</strong>
-            <span>
-              Today's earnings fill this meter. Actual creditor payments are recorded separately.
-            </span>
-          </div>
-        </div>
-
-        <div className="debt-breakdown">
-          {todayState?.record.debtContributions.length ? (
-            todayState.record.debtContributions.map((item) => (
-              <div key={item.debtId} className="projection-row">
-                <span>{item.debtName}</span>
-                <strong>{formatCurrency(item.requiredAmount)}</strong>
-              </div>
-            ))
-          ) : (
-            <p className="empty-state">Add debts with payoff dates to create today's debt target.</p>
-          )}
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Debt plan</p>
-            <h2>Total debt</h2>
-          </div>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => {
-              setEditingDebt(null);
-              setShowDebtForm((value) => !value);
-            }}
-          >
-            {showDebtForm ? "Close" : "Add debt"}
-          </button>
-        </div>
-
-        <div className="stats-grid debt-stats">
-          <DebtStat label="Principal" value={formatCurrency(summary.activePrincipal)} />
-          <DebtStat label="Est. daily interest" value={`~${formatCurrency(summary.estimatedDailyInterest)}`} />
-          <DebtStat label="Est. future interest" value={`~${formatCurrency(summary.projectedFutureInterest)}`} />
-          <DebtStat label="Projected total payoff" value={`~${formatCurrency(summary.projectedTotalPayoff)}`} />
-          <DebtStat label="Today's required amount" value={formatCurrency(summary.todaysRequiredAmount)} />
-          <DebtStat
-            label="Furthest payoff date"
-            value={summary.furthestPayoffDate ? formatDisplayDate(summary.furthestPayoffDate) : "Not set"}
+        <div className="today-primary">
+          <TodayDebtHero
+            todayState={todayState}
+            summary={summary}
+            progressPercent={progressPercent}
+            isComplete={isComplete}
+            isPaidInAdvance={isPaidInAdvance}
           />
-          <DebtStat label="Other daily goal" value={formatCurrency(goalDailyTarget)} />
-        </div>
 
-        {(showDebtForm || editingDebt) && (
-          <DebtForm
-            today={today}
-            initialDebt={editingDebt}
-            onCancel={() => {
-              setEditingDebt(null);
-              setShowDebtForm(false);
-            }}
-            onSave={(debt) => {
-              onSaveDebt(debt);
-              setEditingDebt(null);
-              setShowDebtForm(false);
-            }}
-          />
-        )}
-      </section>
-
-      {todayState && (availableExtra > 0 || totalReservedForFuture > 0) && (
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Extra money</p>
-              <h2>A good day can make tomorrow lighter</h2>
-              <p className="inline-note">
-                Still available: {formatCurrency(availableExtra)}
-                {totalReservedForFuture > 0 && ` · Reserved for future debt: ${formatCurrency(totalReservedForFuture)}`}
-              </p>
-            </div>
-          </div>
-
-          {availableExtra > 0 && (
-            <div className="rollover-actions">
-              <button type="button" onClick={useAllExtraForRollover}>
-                Fund Tomorrow
-              </button>
+          <div className="action-center" aria-label="Today debt actions">
+            <div className="quick-earnings-shell">
               <button
                 type="button"
-                className="secondary"
-                onClick={() => {
-                  setShowRolloverForm((value) => !value);
-                  setRolloverAmount("");
-                }}
+                className={`debt-quick-action ${isComplete ? "secondary" : ""}`}
+                onClick={() => setShowQuickEarnings((value) => !value)}
+                aria-expanded={showQuickEarnings}
+                aria-controls="quick-earnings-menu"
               >
-                Choose Amount
+                {showQuickEarnings ? "Close" : "Add earnings"}
               </button>
-              {activeDebts.length > 0 && (
+              {showQuickEarnings && (
+                <form
+                  id="quick-earnings-menu"
+                  className="quick-earnings-menu"
+                  onSubmit={submitQuickEarnings}
+                  noValidate
+                >
+                  <label>
+                    Amount
+                    <input
+                      ref={quickAmountRef}
+                      type="number"
+                      inputMode="decimal"
+                      min="0.01"
+                      step="0.01"
+                      value={quickAmount}
+                      onChange={(event) => setQuickAmount(event.target.value)}
+                      placeholder="0.00"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Note <span className="muted">(optional)</span>
+                    <input
+                      type="text"
+                      value={quickNote}
+                      onChange={(event) => setQuickNote(event.target.value)}
+                      placeholder="Side gig, sale, cash"
+                    />
+                  </label>
+                  <div className="quick-earnings-actions">
+                    <button type="button" className="secondary small" onClick={() => setShowQuickEarnings(false)}>
+                      Cancel
+                    </button>
+                    <button type="submit" className="small" disabled={!quickAmountIsValid}>
+                      Save
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+
+            {availableExtra > 0 && (
+              <>
+                <button type="button" className={isComplete ? "" : "secondary"} onClick={useAllExtraForRollover}>
+                  Fund Tomorrow
+                </button>
                 <button
                   type="button"
                   className="secondary"
-                  onClick={() => startPayment(activeDebts[0].id, String(availableExtra))}
+                  onClick={() => {
+                    setShowRolloverForm((value) => !value);
+                    setRolloverAmount("");
+                  }}
                 >
-                  Record creditor payment
+                  Choose Amount
                 </button>
-              )}
-            </div>
-          )}
+              </>
+            )}
+            {activeDebts.length > 0 && (
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => startPayment(activeDebts[0].id, availableExtra > 0 ? String(availableExtra) : "")}
+              >
+                Record Payment
+              </button>
+            )}
+          </div>
 
           {showRolloverForm && availableExtra > 0 && (
-            <form className="rollover-form" onSubmit={submitRollover} noValidate>
+            <form className="rollover-form compact-rollover-form" onSubmit={submitRollover} noValidate>
               <label>
                 Reserve amount
                 <input
@@ -471,77 +357,26 @@ export function DebtDashboard({
                   Cancel
                 </button>
                 <button type="submit" disabled={!rolloverAmountIsValid}>
-                  Reserve for tomorrow
+                  Reserve
                 </button>
               </div>
             </form>
           )}
-        </section>
-      )}
+        </div>
 
-      {rolloverDetails.length > 0 && (
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Reserved debt funds</p>
-              <h2>{formatCurrency(totalReservedForFuture)} ready for future days</h2>
-            </div>
-          </div>
-          <div className="daily-summary">
-            {rolloverDetails.map(({ allocation, consumed, unused }) => (
-              <div className="summary-row rollover-row" key={allocation.id}>
-                <span>
-                  From {formatDisplayDate(allocation.sourceDate)}
-                  <small>
-                    {formatCurrency(unused)} unused
-                    {consumed > 0 && ` · ${formatCurrency(consumed)} already used`}
-                  </small>
-                </span>
-                {editingRolloverId === allocation.id ? (
-                  <form
-                    className="inline-edit-form"
-                    onSubmit={(event) => submitRolloverEdit(event, allocation, consumed)}
-                  >
-                    <input
-                      type="number"
-                      min={consumed}
-                      step="0.01"
-                      value={editingRolloverAmount}
-                      onChange={(event) => setEditingRolloverAmount(event.target.value)}
-                    />
-                    <button
-                      type="submit"
-                      className="small"
-                      disabled={Number(editingRolloverAmount) < consumed}
-                    >
-                      Save
-                    </button>
-                  </form>
-                ) : (
-                  <strong>{formatCurrency(allocation.amount)}</strong>
-                )}
-                <div className="row-actions">
-                  <button type="button" className="secondary small" onClick={() => startEditRollover(allocation)}>
-                    Edit
-                  </button>
-                  {unused > 0 && (
-                    <button
-                      type="button"
-                      className="secondary small"
-                      onClick={() => onUpdateRollover(allocation.id, consumed)}
-                    >
-                      Return unused
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+        <aside className="today-side">
+          <FutureReliefSummary summary={futureRelief} />
+          <CompactDebtStats
+            completedDays={todayState?.completedDays ?? 0}
+            streak={todayState?.currentStreak ?? 0}
+            daysLeft={summary.debtDaysLeft}
+            fundedDays={futureRelief.fullyFundedDays + futureRelief.nextDayFundedPercent / 100}
+          />
+        </aside>
+      </section>
 
       {paymentDebtId && (
-        <section className="panel">
+        <section className="panel active-form-panel">
           <div className="section-heading">
             <div>
               <p className="eyebrow">Creditor payment</p>
@@ -584,13 +419,76 @@ export function DebtDashboard({
         </section>
       )}
 
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Debts</p>
-            <h2>Active debts</h2>
-          </div>
+      <DashboardAccordion title="Today details" defaultOpen={Boolean(todayRecord?.rolloverApplied)}>
+        <div className="detail-grid">
+          <DebtStat label="Earnings today" value={formatCurrency(todayRecord?.earnings ?? 0)} />
+          <DebtStat label="Normal target" value={formatCurrency(todayRecord?.requiredDebtAmount ?? 0)} />
+          <DebtStat label="Pre-funded today" value={formatCurrency(todayRecord?.rolloverApplied ?? 0)} />
+          <DebtStat label="Earnings applied" value={formatCurrency(todayRecord?.earningsAppliedToDebt ?? 0)} />
+          <DebtStat label="Extra available" value={formatCurrency(availableExtra)} />
+          <DebtStat label="Completion source" value={formatCompletionSource(todayRecord)} />
         </div>
+      </DashboardAccordion>
+
+      <DashboardAccordion title="Future funding" defaultOpen={totalReservedForFuture > 0}>
+        <FutureFundingDetails
+          futureRelief={futureRelief}
+          rolloverDetails={rolloverDetails}
+          editingRolloverId={editingRolloverId}
+          editingRolloverAmount={editingRolloverAmount}
+          setEditingRolloverAmount={setEditingRolloverAmount}
+          startEditRollover={startEditRollover}
+          submitRolloverEdit={submitRolloverEdit}
+          onUpdateRollover={onUpdateRollover}
+        />
+      </DashboardAccordion>
+
+      <DashboardAccordion title="Debt breakdown">
+        <div className="section-heading compact-heading">
+          <div>
+            <p className="eyebrow">Debt plan</p>
+            <h2>Actual debt stays here</h2>
+          </div>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              setEditingDebt(null);
+              setShowDebtForm((value) => !value);
+            }}
+          >
+            {showDebtForm ? "Close" : "Add debt"}
+          </button>
+        </div>
+
+        <div className="stats-grid debt-stats">
+          <DebtStat label="Principal" value={formatCurrency(summary.activePrincipal)} />
+          <DebtStat label="Est. daily interest" value={`~${formatCurrency(summary.estimatedDailyInterest)}`} />
+          <DebtStat label="Est. future interest" value={`~${formatCurrency(summary.projectedFutureInterest)}`} />
+          <DebtStat label="Projected total payoff" value={`~${formatCurrency(summary.projectedTotalPayoff)}`} />
+          <DebtStat label="Today's target" value={formatCurrency(summary.todaysRequiredAmount)} />
+          <DebtStat
+            label="Furthest payoff"
+            value={summary.furthestPayoffDate ? formatDisplayDate(summary.furthestPayoffDate) : "Not set"}
+          />
+        </div>
+
+        {(showDebtForm || editingDebt) && (
+          <DebtForm
+            today={today}
+            initialDebt={editingDebt}
+            onCancel={() => {
+              setEditingDebt(null);
+              setShowDebtForm(false);
+            }}
+            onSave={(debt) => {
+              onSaveDebt(debt);
+              setEditingDebt(null);
+              setShowDebtForm(false);
+            }}
+          />
+        )}
+
         <div className="debt-card-grid">
           {summary.projections.length === 0 ? (
             <p className="empty-state">No active debts yet.</p>
@@ -606,16 +504,8 @@ export function DebtDashboard({
             ))
           )}
         </div>
-      </section>
 
-      {paidDebts.length > 0 && (
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Archive</p>
-              <h2>Paid-off debts</h2>
-            </div>
-          </div>
+        {paidDebts.length > 0 && (
           <div className="daily-summary">
             {paidDebts.map((debt) => (
               <div className="summary-row" key={debt.id}>
@@ -625,20 +515,310 @@ export function DebtDashboard({
               </div>
             ))}
           </div>
-        </section>
-      )}
+        )}
+      </DashboardAccordion>
 
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">History</p>
-            <h2>Debt days</h2>
-          </div>
-        </div>
+      <DashboardAccordion title="History">
         <DebtHistory records={liveDailyDebtRecords} />
-      </section>
+      </DashboardAccordion>
     </div>
   );
+}
+
+function TodayDebtHero({
+  todayState,
+  summary,
+  progressPercent,
+  isComplete,
+  isPaidInAdvance,
+}: {
+  todayState: TodayDebtState | null;
+  summary: DebtSummary;
+  progressPercent: number;
+  isComplete: boolean;
+  isPaidInAdvance: boolean;
+}) {
+  const record = todayState?.record;
+  const hasDailyTarget = (record?.requiredDebtAmount ?? summary.todaysRequiredAmount) > 0;
+  const remainingToday = todayState?.remainingToday ?? 0;
+  const title = !hasDailyTarget
+    ? "No debt scheduled"
+    : isComplete
+      ? isPaidInAdvance
+        ? "Paid in advance"
+        : "Clear for today"
+      : `${formatCurrency(remainingToday)} left today`;
+
+  return (
+    <div className="today-hero-copy">
+      <p className="eyebrow">Today's debt</p>
+      <div className="today-title-row">
+        <h1>{title}</h1>
+        {isComplete && <span className="completion-badge">Done</span>}
+      </div>
+      <p className="today-tally">
+        {formatCurrency(record?.completedAmount ?? 0)} of {formatCurrency(record?.requiredDebtAmount ?? 0)}
+      </p>
+      {record && record.rolloverApplied > 0 && (
+        <div className="prefund-summary" aria-label="Prefunded debt details">
+          <span>Normal {formatCurrency(record.requiredDebtAmount)}</span>
+          <span>Pre-funded -{formatCurrency(record.rolloverApplied)}</span>
+          <span>Earned today {formatCurrency(record.earningsAppliedToDebt)}</span>
+        </div>
+      )}
+      <DailyProgress
+        progressPercent={progressPercent}
+        isComplete={isComplete}
+        hasDailyTarget={hasDailyTarget}
+      />
+      {isComplete && (
+        <p className="success-text dopamine-text">
+              {isPaidInAdvance ? "Today was already funded." : "Today's obligation is finished."}
+        </p>
+      )}
+      {!isComplete && progressPercent >= 75 && (
+        <p className="near-goal-text">Almost there - {formatCurrency(remainingToday)} left.</p>
+      )}
+      {todayState && todayState.extraAvailable > 0 && (
+        <p className="success-text">You have {formatCurrency(todayState.extraAvailable)} available.</p>
+      )}
+    </div>
+  );
+}
+
+function DailyProgress({
+  progressPercent,
+  isComplete,
+  hasDailyTarget,
+}: {
+  progressPercent: number;
+  isComplete: boolean;
+  hasDailyTarget: boolean;
+}) {
+  const percent = Math.round(progressPercent);
+
+  return (
+    <div className="daily-progress" aria-label={`Daily progress ${percent}%`}>
+      <div className="progress-bar debt-meter">
+        <span style={{ width: `${progressPercent}%` }} />
+      </div>
+      <div className="progress-meta">
+        <strong>{isComplete ? "100% complete" : `${Math.max(0, 100 - percent)}% remaining`}</strong>
+        <span>
+          {isComplete
+            ? "You can stop here or make tomorrow lighter."
+            : hasDailyTarget
+              ? "Earnings and pre-funded money fill this meter."
+              : "Add debts with payoff dates to create a daily target."}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function FutureReliefSummary({ summary }: { summary: FutureReliefData }) {
+  const headline = getFutureReliefHeadline(summary);
+
+  return (
+    <section className="future-relief-strip" aria-labelledby="future-relief-title">
+      <p className="eyebrow" id="future-relief-title">Future relief</p>
+      <strong>{headline}</strong>
+      <span>{formatCurrency(summary.totalReservedAmount)} reserved</span>
+      {summary.nextFundedDate && (
+        <div className="mini-meter" aria-label={`${formatPercent(summary.nextDayFundedPercent)} funded`}>
+          <span style={{ width: `${summary.nextDayFundedPercent}%` }} />
+        </div>
+      )}
+      {summary.remainingAfterProjectedDebt > 0 && (
+        <small>{formatCurrency(summary.remainingAfterProjectedDebt)} left after projected debt days.</small>
+      )}
+    </section>
+  );
+}
+
+function CompactDebtStats({
+  completedDays,
+  streak,
+  daysLeft,
+  fundedDays,
+}: {
+  completedDays: number;
+  streak: number;
+  daysLeft: number;
+  fundedDays: number;
+}) {
+  return (
+    <div className="compact-stats" aria-label="Debt progress stats">
+      <CompactStat label="Completed" value={String(completedDays)} />
+      <CompactStat label="Streak" value={`${streak}d`} />
+      <CompactStat label="Days left" value={String(daysLeft)} />
+      <CompactStat label="Funded" value={formatFundedDays(fundedDays)} />
+    </div>
+  );
+}
+
+function CompactStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function DashboardAccordion({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <details className="dashboard-accordion panel" open={defaultOpen}>
+      <summary>
+        <span>{title}</span>
+        <span aria-hidden="true">+</span>
+      </summary>
+      <div className="accordion-content">{children}</div>
+    </details>
+  );
+}
+
+function FutureFundingDetails({
+  futureRelief,
+  rolloverDetails,
+  editingRolloverId,
+  editingRolloverAmount,
+  setEditingRolloverAmount,
+  startEditRollover,
+  submitRolloverEdit,
+  onUpdateRollover,
+}: {
+  futureRelief: FutureReliefData;
+  rolloverDetails: Array<{ allocation: RolloverAllocation; consumed: number; unused: number }>;
+  editingRolloverId: string;
+  editingRolloverAmount: string;
+  setEditingRolloverAmount: (value: string) => void;
+  startEditRollover: (allocation: RolloverAllocation) => void;
+  submitRolloverEdit: (event: FormEvent, allocation: RolloverAllocation, consumed: number) => void;
+  onUpdateRollover: (allocationId: string, amount: number) => void;
+}) {
+  if (rolloverDetails.length === 0) {
+    return <p className="empty-state">No future days funded yet.</p>;
+  }
+
+  return (
+    <div className="stack">
+      <div className="detail-grid">
+        <DebtStat label="Reserved" value={formatCurrency(futureRelief.totalReservedAmount)} />
+        <DebtStat label="Fully funded days" value={String(futureRelief.fullyFundedDays)} />
+        <DebtStat
+          label="Next funded day"
+          value={futureRelief.nextFundedDate ? formatDisplayDate(futureRelief.nextFundedDate) : "None"}
+        />
+        <DebtStat label="Next day funded" value={formatPercent(futureRelief.nextDayFundedPercent)} />
+      </div>
+      <div className="daily-summary">
+        {rolloverDetails.map(({ allocation, consumed, unused }) => (
+          <div className="summary-row rollover-row" key={allocation.id}>
+            <span>
+              From {formatDisplayDate(allocation.sourceDate)}
+              <small>
+                {formatCurrency(unused)} unused
+                {consumed > 0 && ` / ${formatCurrency(consumed)} already used`}
+              </small>
+            </span>
+            {editingRolloverId === allocation.id ? (
+              <form
+                className="inline-edit-form"
+                onSubmit={(event) => submitRolloverEdit(event, allocation, consumed)}
+              >
+                <input
+                  type="number"
+                  min={consumed}
+                  step="0.01"
+                  value={editingRolloverAmount}
+                  onChange={(event) => setEditingRolloverAmount(event.target.value)}
+                />
+                <button
+                  type="submit"
+                  className="small"
+                  disabled={Number(editingRolloverAmount) < consumed}
+                >
+                  Save
+                </button>
+              </form>
+            ) : (
+              <strong>{formatCurrency(allocation.amount)}</strong>
+            )}
+            <div className="row-actions">
+              <button type="button" className="secondary small" onClick={() => startEditRollover(allocation)}>
+                Edit
+              </button>
+              {unused > 0 && (
+                <button
+                  type="button"
+                  className="secondary small"
+                  onClick={() => onUpdateRollover(allocation.id, consumed)}
+                >
+                  Return unused
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function getFutureReliefHeadline(summary: FutureReliefData): string {
+  if (summary.totalReservedAmount <= 0) {
+    return "No future days funded yet";
+  }
+
+  if (summary.fullyFundedDays > 0 && summary.nextFundedDate) {
+    return `${summary.fullyFundedDays} covered, next day ${Math.round(summary.nextDayFundedPercent)}% funded`;
+  }
+
+  if (summary.fullyFundedDays > 0) {
+    return `${summary.fullyFundedDays} ${summary.fullyFundedDays === 1 ? "day is" : "days are"} already covered`;
+  }
+
+  if (summary.nextFundedDate) {
+    return `Tomorrow is ${Math.round(summary.nextDayFundedPercent)}% funded`;
+  }
+
+  return "Future money is reserved";
+}
+
+function formatFundedDays(fullyFundedDays: number): string {
+  if (fullyFundedDays <= 0) {
+    return "0";
+  }
+
+  return Number.isInteger(fullyFundedDays) ? `${fullyFundedDays}d` : `${fullyFundedDays.toFixed(1)}d`;
+}
+
+function formatCompletionSource(record: DailyDebtRecord | undefined): string {
+  if (!record) {
+    return "None";
+  }
+
+  switch (record.completionSource) {
+    case "earnings":
+      return "Earnings";
+    case "rollover":
+      return "Pre-funded";
+    case "mixed":
+      return "Mixed";
+    case "partial":
+      return "In progress";
+    case "none":
+      return "None";
+  }
 }
 
 function DebtForm({
@@ -842,13 +1022,13 @@ function DebtHistory({ records }: { records: DailyDebtRecord[] }) {
   );
 }
 
-const celebrationEmojis = ["🎉", "✨", "💸", "🔥", "⭐", "🚀", "🎊", "💥", "🙌", "✅", "🌈", "⚡"];
+const celebrationBursts = Array.from({ length: 8 }, (_, index) => index);
 
 function CompletionBurst() {
   return (
     <div className="completion-burst" aria-hidden="true">
-      {celebrationEmojis.map((emoji, index) => (
-        <span key={`${emoji}-${index}`}>{emoji}</span>
+      {celebrationBursts.map((item) => (
+        <span key={item} />
       ))}
     </div>
   );

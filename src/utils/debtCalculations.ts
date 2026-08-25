@@ -9,7 +9,7 @@ import type {
   RolloverConsumption,
 } from "../types";
 import { normalizeMoney } from "./currency";
-import { compareCalendarDates, daysBetweenInclusive, isAfter, maxDate } from "./dates";
+import { addCalendarDays, compareCalendarDates, daysBetweenInclusive, isAfter, maxDate } from "./dates";
 
 const SOLVER_ITERATIONS = 48;
 
@@ -52,6 +52,17 @@ export interface TodayDebtState {
 export interface RolloverUsage {
   rolloverApplied: number;
   rolloverConsumption: RolloverConsumption[];
+}
+
+export interface FutureReliefSummary {
+  totalReservedAmount: number;
+  fullyFundedDays: number;
+  fundedDates: CalendarDateString[];
+  nextFundedDate: CalendarDateString | null;
+  nextDayRequirement: number;
+  nextDayFundedAmount: number;
+  nextDayFundedPercent: number;
+  remainingAfterProjectedDebt: number;
 }
 
 export function calculateDebtProjection(
@@ -342,6 +353,56 @@ export function canAllocateRolloverAmount(amount: number, availableExtra: number
     amount > 0 &&
     amount <= normalizeMoney(availableExtra)
   );
+}
+
+export function calculateFutureReliefSummary(
+  allocations: RolloverAllocation[],
+  records: DailyDebtRecord[],
+  debts: Debt[],
+  today: CalendarDateString,
+): FutureReliefSummary {
+  let availableRollover = sumMoney(
+    allocations.map((allocation) => rolloverUnusedAmount(allocation, records)),
+  );
+  const totalReservedAmount = availableRollover;
+  const currentSummary = calculateDebtSummary(debts, today);
+  const fundedDates: CalendarDateString[] = [];
+  let nextFundedDate: CalendarDateString | null = null;
+  let nextDayRequirement = 0;
+  let nextDayFundedAmount = 0;
+  let cursor = addCalendarDays(today, 1);
+
+  while (
+    availableRollover > 0 &&
+    currentSummary.furthestPayoffDate &&
+    compareCalendarDates(cursor, currentSummary.furthestPayoffDate) <= 0
+  ) {
+    const dailyRequirement = calculateDebtSummary(debts, cursor).todaysRequiredAmount;
+
+    if (dailyRequirement > 0 && availableRollover >= dailyRequirement) {
+      fundedDates.push(cursor);
+      availableRollover = normalizeMoney(availableRollover - dailyRequirement);
+    } else if (dailyRequirement > 0) {
+      nextFundedDate = cursor;
+      nextDayRequirement = dailyRequirement;
+      nextDayFundedAmount = availableRollover;
+      availableRollover = 0;
+    }
+
+    cursor = addCalendarDays(cursor, 1);
+  }
+
+  return {
+    totalReservedAmount,
+    fullyFundedDays: fundedDates.length,
+    fundedDates,
+    nextFundedDate,
+    nextDayRequirement,
+    nextDayFundedAmount,
+    nextDayFundedPercent:
+      nextDayRequirement > 0 ? Math.min((nextDayFundedAmount / nextDayRequirement) * 100, 100) : 0,
+    remainingAfterProjectedDebt: availableRollover,
+  };
 }
 
 export function applyDebtPayment(

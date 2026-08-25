@@ -4,6 +4,7 @@ import {
   applyDebtPayment,
   canAllocateRolloverAmount,
   calculateDebtProjection,
+  calculateFutureReliefSummary,
   calculateRolloverUsageForDate,
   calculateDebtSummary,
   calculateTodayDebtState,
@@ -382,6 +383,80 @@ describe("debt rollover", () => {
 
   it("handles local-calendar day advancement across month and year boundaries", () => {
     expect(addCalendarDays("2026-12-31", 1)).toBe("2027-01-01");
+  });
+});
+
+describe("future relief summary", () => {
+  it("reports no funded future days without rollover", () => {
+    const result = calculateFutureReliefSummary([], [], [debt()], today);
+
+    expect(result.totalReservedAmount).toBe(0);
+    expect(result.fullyFundedDays).toBe(0);
+    expect(result.nextDayFundedPercent).toBe(0);
+  });
+
+  it("reports partially funded tomorrow", () => {
+    const result = calculateFutureReliefSummary([rollover({ amount: 10 })], [], [debt()], today);
+
+    expect(result.totalReservedAmount).toBe(10);
+    expect(result.fullyFundedDays).toBe(0);
+    expect(result.nextFundedDate).toBe("2026-08-25");
+    expect(result.nextDayFundedPercent).toBeCloseTo(9, 2);
+  });
+
+  it("reports exactly one funded future day", () => {
+    const debts = [debt({ currentBalance: 50, targetPayoffDate: "2026-08-25" })];
+    const result = calculateFutureReliefSummary([rollover({ amount: 50 })], [], debts, today);
+
+    expect(result.fullyFundedDays).toBe(1);
+    expect(result.fundedDates).toEqual(["2026-08-25"]);
+    expect(result.nextFundedDate).toBeNull();
+  });
+
+  it("reports multiple fully funded future days", () => {
+    const debts = [debt({ currentBalance: 90, targetPayoffDate: "2026-08-26" })];
+    const result = calculateFutureReliefSummary([rollover({ amount: 135 })], [], debts, today);
+
+    expect(result.fullyFundedDays).toBe(2);
+    expect(result.nextFundedDate).toBeNull();
+  });
+
+  it("reports a partially funded day after multiple complete days", () => {
+    const debts = [debt({ currentBalance: 120, targetPayoffDate: "2026-08-27" })];
+    const result = calculateFutureReliefSummary([rollover({ amount: 110 })], [], debts, today);
+
+    expect(result.fullyFundedDays).toBe(2);
+    expect(result.nextFundedDate).toBe("2026-08-27");
+    expect(result.nextDayFundedAmount).toBe(10);
+  });
+
+  it("uses varying future daily requirements instead of today's requirement", () => {
+    const debts = [
+      debt({ id: "a", currentBalance: 48, targetPayoffDate: "2026-08-25" }),
+      debt({ id: "b", currentBalance: 75, targetPayoffDate: "2026-08-27" }),
+    ];
+    const result = calculateFutureReliefSummary([rollover({ amount: 80 })], [], debts, today);
+
+    expect(result.fullyFundedDays).toBe(1);
+    expect(result.nextFundedDate).toBe("2026-08-26");
+    expect(result.nextDayFundedAmount).toBe(7);
+    expect(result.nextDayRequirement).toBe(37.5);
+  });
+
+  it("preserves remaining rollover after smaller future requirements", () => {
+    const debts = [debt({ currentBalance: 25, targetPayoffDate: "2026-08-25" })];
+    const result = calculateFutureReliefSummary([rollover({ amount: 30 })], [], debts, today);
+
+    expect(result.fullyFundedDays).toBe(1);
+    expect(result.remainingAfterProjectedDebt).toBe(5);
+  });
+
+  it("preserves rollover when there is no active debt", () => {
+    const result = calculateFutureReliefSummary([rollover({ amount: 30 })], [], [], today);
+
+    expect(result.totalReservedAmount).toBe(30);
+    expect(result.fullyFundedDays).toBe(0);
+    expect(result.remainingAfterProjectedDebt).toBe(30);
   });
 });
 
